@@ -240,6 +240,64 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     print(f"Setup completed for {interaction.guild.name} - Channel: #{channel.name}")
 
 
+@bot.tree.command(name='spawn', description='Force spawn a Pokemon immediately (Admin only)')
+@app_commands.default_permissions(administrator=True)
+async def spawn_command(interaction: discord.Interaction):
+    """Admin command to force spawn a Pokemon for testing"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    channel_id = str(interaction.channel.id)
+
+    # Check if there's already a spawn in this channel
+    if channel_id in active_spawns:
+        await interaction.response.send_message(
+            "There's already a Pokemon active in this channel! Catch it first before spawning another.",
+            ephemeral=True
+        )
+        return
+
+    # Defer the response
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Fetch random Pokemon
+        async with aiohttp.ClientSession() as session:
+            pokemon = await fetch_pokemon(session)
+
+        if pokemon:
+            # Store active spawn with timestamp
+            active_spawns[channel_id] = {
+                'pokemon': pokemon,
+                'spawn_time': datetime.now()
+            }
+
+            # Send spawn message
+            embed = create_spawn_embed(pokemon)
+            await interaction.channel.send(embed=embed)
+
+            # Send confirmation to admin
+            await interaction.followup.send(
+                f"✅ Spawned {pokemon['name']} in this channel!",
+                ephemeral=True
+            )
+
+            print(f"Admin spawned {pokemon['name']} in {interaction.guild.name}#{interaction.channel.name}")
+        else:
+            await interaction.followup.send(
+                "❌ Failed to fetch Pokemon from API. Try again!",
+                ephemeral=True
+            )
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error spawning Pokemon: {str(e)}",
+            ephemeral=True
+        )
+        print(f"Error in spawn command: {e}")
+
+
 @bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
 @app_commands.describe(member='The user whose Pokedex you want to view (optional)')
 async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
@@ -335,6 +393,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/setup #channel",
         value="(Admin only) Configure which channel Pokemon spawn in",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/spawn",
+        value="(Admin only) Force spawn a Pokemon immediately for testing",
         inline=False
     )
 
