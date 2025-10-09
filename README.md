@@ -136,5 +136,7 @@ Feel free to use and modify this bot for your own Discord server!
 
 ## Credits
 
+- Created by **DoughnutDev**
+- Built with **Claude Code** by Anthropic
 - Pokemon data from [PokeAPI](https://pokeapi.co/)
 - Built with [discord.py](https://github.com/Rapptz/discord.py)
