@@ -425,6 +425,191 @@ async def spawn_command(interaction: discord.Interaction):
         print(f"Error in spawn command: {e}")
 
 
+# Interactive Trade View
+class TradeView(View):
+    def __init__(self, user1: discord.Member, user2: discord.Member, guild_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user1 = user1
+        self.user2 = user2
+        self.guild_id = guild_id
+        self.user1_pokemon = []
+        self.user2_pokemon = []
+        self.user1_offer = None  # {catch_id, pokemon_name, pokemon_id}
+        self.user2_offer = None
+        self.user1_accepted = False
+        self.user2_accepted = False
+        self.trade_completed = False
+        self.trade_cancelled = False
+
+    async def load_pokemon(self):
+        """Load Pokemon for both users"""
+        self.user1_pokemon = await db.get_user_pokemon_for_trade(self.user1.id, self.guild_id)
+        self.user2_pokemon = await db.get_user_pokemon_for_trade(self.user2.id, self.guild_id)
+
+    def create_embed(self):
+        """Create the trade embed"""
+        embed = discord.Embed(
+            title="🔄 Pokemon Trade",
+            description=f"**{self.user1.display_name}** ↔️ **{self.user2.display_name}**",
+            color=discord.Color.blue()
+        )
+
+        # User 1's offer
+        user1_offer_text = "Nothing selected"
+        if self.user1_offer:
+            user1_offer_text = f"#{self.user1_offer['pokemon_id']:03d} {self.user1_offer['pokemon_name']}"
+            if self.user1_accepted:
+                user1_offer_text += " ✅"
+
+        embed.add_field(
+            name=f"{self.user1.display_name}'s Offer",
+            value=user1_offer_text,
+            inline=True
+        )
+
+        # User 2's offer
+        user2_offer_text = "Nothing selected"
+        if self.user2_offer:
+            user2_offer_text = f"#{self.user2_offer['pokemon_id']:03d} {self.user2_offer['pokemon_name']}"
+            if self.user2_accepted:
+                user2_offer_text += " ✅"
+
+        embed.add_field(
+            name=f"{self.user2.display_name}'s Offer",
+            value=user2_offer_text,
+            inline=True
+        )
+
+        # Status
+        if self.trade_completed:
+            embed.add_field(
+                name="Status",
+                value="✅ Trade completed successfully!",
+                inline=False
+            )
+        elif self.trade_cancelled:
+            embed.add_field(
+                name="Status",
+                value="❌ Trade cancelled",
+                inline=False
+            )
+        else:
+            status_parts = []
+            if self.user1_accepted:
+                status_parts.append(f"✅ {self.user1.display_name} accepted")
+            if self.user2_accepted:
+                status_parts.append(f"✅ {self.user2.display_name} accepted")
+
+            if status_parts:
+                embed.add_field(
+                    name="Status",
+                    value="\n".join(status_parts),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Status",
+                    value="⏳ Waiting for both users to select Pokemon and accept",
+                    inline=False
+                )
+
+        embed.set_footer(text="Both users must select a Pokemon and click Accept to complete the trade")
+
+        return embed
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the display"""
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.select(placeholder=f"Select your Pokemon to offer...", custom_id="user1_select", min_values=1, max_values=1)
+    async def user1_select(self, interaction: discord.Interaction, select: Select):
+        """User 1 selects their Pokemon"""
+        if interaction.user.id != self.user1.id:
+            await interaction.response.send_message("This is not your trade!", ephemeral=True)
+            return
+
+        # Find selected Pokemon
+        catch_id = int(select.values[0])
+        selected = next((p for p in self.user1_pokemon if p['id'] == catch_id), None)
+
+        if selected:
+            self.user1_offer = selected
+            self.user1_accepted = False  # Reset acceptance when changing offer
+            await self.update_display(interaction)
+
+    @discord.ui.select(placeholder=f"Select your Pokemon to offer...", custom_id="user2_select", min_values=1, max_values=1)
+    async def user2_select(self, interaction: discord.Interaction, select: Select):
+        """User 2 selects their Pokemon"""
+        if interaction.user.id != self.user2.id:
+            await interaction.response.send_message("This is not your trade!", ephemeral=True)
+            return
+
+        # Find selected Pokemon
+        catch_id = int(select.values[0])
+        selected = next((p for p in self.user2_pokemon if p['id'] == catch_id), None)
+
+        if selected:
+            self.user2_offer = selected
+            self.user2_accepted = False  # Reset acceptance when changing offer
+            await self.update_display(interaction)
+
+    @discord.ui.button(label="Accept Trade", style=discord.ButtonStyle.green, custom_id="accept")
+    async def accept_button(self, interaction: discord.Interaction, button: Button):
+        """Accept the trade"""
+        if interaction.user.id not in [self.user1.id, self.user2.id]:
+            await interaction.response.send_message("This is not your trade!", ephemeral=True)
+            return
+
+        # Check if user has selected a Pokemon
+        if interaction.user.id == self.user1.id:
+            if not self.user1_offer:
+                await interaction.response.send_message("Please select a Pokemon to offer first!", ephemeral=True)
+                return
+            self.user1_accepted = True
+        else:
+            if not self.user2_offer:
+                await interaction.response.send_message("Please select a Pokemon to offer first!", ephemeral=True)
+                return
+            self.user2_accepted = True
+
+        # Check if both accepted
+        if self.user1_accepted and self.user2_accepted:
+            # Execute trade
+            success = await db.execute_trade(
+                self.user1_offer['id'],
+                self.user2_offer['id'],
+                self.user1.id,
+                self.user2.id,
+                self.guild_id
+            )
+
+            if success:
+                self.trade_completed = True
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+            else:
+                await interaction.response.send_message("❌ Trade failed! Please try again.", ephemeral=True)
+                return
+
+        await self.update_display(interaction)
+
+    @discord.ui.button(label="Cancel Trade", style=discord.ButtonStyle.red, custom_id="cancel")
+    async def cancel_button(self, interaction: discord.Interaction, button: Button):
+        """Cancel the trade"""
+        if interaction.user.id not in [self.user1.id, self.user2.id]:
+            await interaction.response.send_message("This is not your trade!", ephemeral=True)
+            return
+
+        self.trade_cancelled = True
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+
+        await self.update_display(interaction)
+
+
 # Interactive Leaderboard View
 class LeaderboardView(View):
     def __init__(self, guild: discord.Guild):
@@ -896,6 +1081,63 @@ async def pack(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='trade', description='Trade Pokemon with another user')
+@app_commands.describe(user='The user you want to trade with')
+async def trade(interaction: discord.Interaction, user: discord.Member):
+    """Initiate a trade with another user"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Can't trade with yourself
+    if user.id == interaction.user.id:
+        await interaction.response.send_message("❌ You can't trade with yourself!", ephemeral=True)
+        return
+
+    # Can't trade with bots
+    if user.bot:
+        await interaction.response.send_message("❌ You can't trade with bots!", ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    # Create trade view
+    view = TradeView(interaction.user, user, interaction.guild.id)
+    await view.load_pokemon()
+
+    # Check if both users have Pokemon
+    if not view.user1_pokemon:
+        await interaction.followup.send(f"❌ {interaction.user.display_name} doesn't have any Pokemon to trade!")
+        return
+
+    if not view.user2_pokemon:
+        await interaction.followup.send(f"❌ {user.display_name} doesn't have any Pokemon to trade!")
+        return
+
+    # Populate dropdown options (max 25 options per dropdown)
+    user1_options = []
+    for pokemon in view.user1_pokemon[:25]:
+        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user1_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+
+    user2_options = []
+    for pokemon in view.user2_pokemon[:25]:
+        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user2_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+
+    # Set dropdown options
+    view.user1_select.options = user1_options
+    view.user2_select.options = user2_options
+
+    # Update placeholders with usernames
+    view.user1_select.placeholder = f"{interaction.user.display_name}: Select your Pokemon..."
+    view.user2_select.placeholder = f"{user.display_name}: Select your Pokemon..."
+
+    embed = view.create_embed()
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='leaderboard', description='View server leaderboards')
 async def leaderboard(interaction: discord.Interaction):
     """Show server leaderboards with different categories"""
@@ -1046,6 +1288,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/leaderboard",
         value="View server leaderboards with different categories",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/trade @user",
+        value="Trade Pokemon with another user",
         inline=False
     )
 

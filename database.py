@@ -449,6 +449,63 @@ async def get_user_stats(user_id: int, guild_id: int) -> Dict:
         return dict(stats) if stats else {'total': 0, 'unique': 0}
 
 
+# Trading functions
+
+async def get_user_pokemon_for_trade(user_id: int, guild_id: int) -> List[Dict]:
+    """Get user's Pokemon with individual catch IDs for trading"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT id, pokemon_name, pokemon_id, caught_at
+            FROM catches
+            WHERE user_id = $1 AND guild_id = $2
+            ORDER BY pokemon_name ASC, caught_at DESC
+        ''', user_id, guild_id)
+
+        return [dict(row) for row in rows]
+
+
+async def execute_trade(catch_id1: int, catch_id2: int, user_id1: int, user_id2: int, guild_id: int) -> bool:
+    """Execute a trade by swapping ownership of two Pokemon"""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        # Start a transaction
+        async with conn.transaction():
+            # Verify both catches exist and belong to the right users
+            catch1 = await conn.fetchrow('''
+                SELECT user_id, guild_id FROM catches WHERE id = $1
+            ''', catch_id1)
+
+            catch2 = await conn.fetchrow('''
+                SELECT user_id, guild_id FROM catches WHERE id = $1
+            ''', catch_id2)
+
+            # Validate the trade
+            if not catch1 or not catch2:
+                return False
+
+            if catch1['user_id'] != user_id1 or catch1['guild_id'] != guild_id:
+                return False
+
+            if catch2['user_id'] != user_id2 or catch2['guild_id'] != guild_id:
+                return False
+
+            # Execute the swap
+            await conn.execute('''
+                UPDATE catches SET user_id = $2 WHERE id = $1
+            ''', catch_id1, user_id2)
+
+            await conn.execute('''
+                UPDATE catches SET user_id = $2 WHERE id = $1
+            ''', catch_id2, user_id1)
+
+            return True
+
+
 # Battlepass functions
 
 async def _initialize_season1_rewards(conn):
