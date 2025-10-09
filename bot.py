@@ -58,6 +58,69 @@ async def fetch_pokemon(session, pokemon_id=None):
     return None
 
 
+async def fetch_pokemon_moves(session, pokemon_id: int, num_moves: int = 4):
+    """Fetch Pokemon's moves from PokeAPI"""
+    url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
+
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+
+                # Get level-up moves only for simpler battles
+                level_up_moves = []
+                for move_data in data['moves']:
+                    for version_detail in move_data['version_group_details']:
+                        if version_detail['move_learn_method']['name'] == 'level-up':
+                            level_up_moves.append(move_data['move'])
+                            break
+
+                # Pick random moves or return all if less than num_moves
+                if len(level_up_moves) > num_moves:
+                    selected_moves = random.sample(level_up_moves, num_moves)
+                else:
+                    selected_moves = level_up_moves[:num_moves]
+
+                # Fetch details for each move
+                moves = []
+                for move in selected_moves:
+                    try:
+                        async with session.get(move['url']) as move_response:
+                            if move_response.status == 200:
+                                move_details = await move_response.json()
+                                moves.append({
+                                    'name': move_details['name'].replace('-', ' ').title(),
+                                    'power': move_details['power'] or 40,  # Default power for status moves
+                                    'accuracy': move_details['accuracy'] or 100,
+                                    'type': move_details['type']['name'],
+                                    'damage_class': move_details.get('damage_class', {}).get('name', 'physical')
+                                })
+                    except:
+                        continue
+
+                # Fill with default "Tackle" move if we don't have enough
+                while len(moves) < num_moves:
+                    moves.append({
+                        'name': 'Tackle',
+                        'power': 40,
+                        'accuracy': 100,
+                        'type': 'normal',
+                        'damage_class': 'physical'
+                    })
+
+                return moves[:num_moves]
+    except Exception as e:
+        print(f"Error fetching moves for Pokemon {pokemon_id}: {e}")
+
+    # Fallback: return basic moves
+    return [
+        {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
+        {'name': 'Scratch', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
+        {'name': 'Growl', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'},
+        {'name': 'Leer', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'}
+    ]
+
+
 async def fetch_pokemon_species(session, pokemon_identifier):
     """Fetch Pokemon species data including Pokedex entries"""
     # pokemon_identifier can be ID or name
@@ -427,22 +490,32 @@ async def spawn_command(interaction: discord.Interaction):
         print(f"Error in spawn command: {e}")
 
 
-# Interactive Battle View
+# Interactive Battle View - Turn-Based System
 class BattleView(View):
     def __init__(self, user1: discord.Member, user2: discord.Member, guild_id: int):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=600)  # 10 minute timeout for turn-based
         self.user1 = user1
         self.user2 = user2
         self.guild_id = guild_id
         self.user1_pokemon = []
         self.user2_pokemon = []
-        self.user1_choice = None  # {catch_id, pokemon_name, pokemon_id, types}
+        self.user1_choice = None  # {id, pokemon_name, pokemon_id, types, moves}
         self.user2_choice = None
         self.user1_ready = False
         self.user2_ready = False
         self.battle_started = False
         self.battle_log = []
         self.winner = None
+
+        # Battle state
+        self.current_turn = None  # 1 or 2
+        self.p1_hp = 0
+        self.p2_hp = 0
+        self.p1_max_hp = 0
+        self.p2_max_hp = 0
+        self.p1_stats = {}
+        self.p2_stats = {}
+        self.turn_count = 0
 
     async def load_pokemon(self):
         """Load Pokemon for both users"""
@@ -459,26 +532,35 @@ class BattleView(View):
             'speed': base['speed']
         }
 
-    def calculate_damage(self, attacker_stats: dict, defender_stats: dict, attacker_types: list, defender_types: list) -> int:
-        """Calculate damage dealt"""
-        # Base damage
-        base_damage = max(1, (attacker_stats['attack'] - defender_stats['defense']) // 2)
+    def calculate_damage(self, move: dict, attacker_stats: dict, defender_stats: dict, defender_types: list) -> int:
+        """Calculate damage from a move"""
+        # Check accuracy
+        if random.randint(1, 100) > move['accuracy']:
+            return 0  # Miss!
+
+        # Base damage from move power
+        if move['damage_class'] == 'physical':
+            base_damage = max(1, int((move['power'] * attacker_stats['attack']) / (defender_stats['defense'] * 2)))
+        elif move['damage_class'] == 'special':
+            # Use attack as special attack for simplicity
+            base_damage = max(1, int((move['power'] * attacker_stats['attack']) / (defender_stats['defense'] * 2)))
+        else:
+            return 0  # Status move
 
         # Type effectiveness
-        type_mult = pkmn.get_type_effectiveness(attacker_types, defender_types)
+        type_mult = pkmn.get_type_effectiveness([move['type']], defender_types)
 
-        # Random variation (90-110%)
-        random_mult = random.uniform(0.9, 1.1)
+        # Random variation (85-100%)
+        random_mult = random.uniform(0.85, 1.0)
 
-        # Critical hit (10% chance for 1.5x)
-        crit_mult = 1.5 if random.random() < 0.1 else 1.0
+        # Critical hit (6.25% chance for 1.5x)
+        crit_mult = 1.5 if random.random() < 0.0625 else 1.0
 
         damage = int(base_damage * type_mult * random_mult * crit_mult)
         return max(1, damage)
 
-    async def execute_battle(self):
-        """Execute the battle automatically"""
-        self.battle_log = []
+    async def start_battle(self):
+        """Initialize battle after both players are ready"""
         self.battle_started = True
 
         # Get Pokemon levels
@@ -486,103 +568,188 @@ class BattleView(View):
         p2_level = await db.get_pokemon_level(self.user2_choice['id'])
 
         # Calculate stats
-        p1_stats = self.calculate_stats(self.user1_choice['pokemon_id'], p1_level)
-        p2_stats = self.calculate_stats(self.user2_choice['pokemon_id'], p2_level)
+        self.p1_stats = self.calculate_stats(self.user1_choice['pokemon_id'], p1_level)
+        self.p2_stats = self.calculate_stats(self.user2_choice['pokemon_id'], p2_level)
 
-        # Set initial HP
-        p1_hp = p1_stats['hp']
-        p2_hp = p2_stats['hp']
+        # Set HP
+        self.p1_hp = self.p1_stats['hp']
+        self.p2_hp = self.p2_stats['hp']
+        self.p1_max_hp = self.p1_hp
+        self.p2_max_hp = self.p2_hp
 
-        # Get types from database
-        p1_types = self.user1_choice.get('types', ['normal'])
-        p2_types = self.user2_choice.get('types', ['normal'])
+        # Determine who goes first based on speed
+        if self.p1_stats['speed'] >= self.p2_stats['speed']:
+            self.current_turn = 1
+        else:
+            self.current_turn = 2
 
         # Battle log
         self.battle_log.append(f"⚔️ **Battle Start!**")
-        self.battle_log.append(f"{self.user1.display_name}'s **{self.user1_choice['pokemon_name']}** (Lv.{p1_level}) HP: {p1_hp}")
-        self.battle_log.append(f"{self.user2.display_name}'s **{self.user2_choice['pokemon_name']}** (Lv.{p2_level}) HP: {p2_hp}")
+        self.battle_log.append(f"{self.user1.display_name}'s **{self.user1_choice['pokemon_name']}** (Lv.{p1_level})")
+        self.battle_log.append(f"vs {self.user2.display_name}'s **{self.user2_choice['pokemon_name']}** (Lv.{p2_level})")
         self.battle_log.append("")
 
-        turn = 0
-        max_turns = 20  # Prevent infinite battles
+        # Add move buttons dynamically
+        self.add_move_buttons()
 
-        # Battle loop
-        while p1_hp > 0 and p2_hp > 0 and turn < max_turns:
-            turn += 1
-            self.battle_log.append(f"**Turn {turn}:**")
+    def add_move_buttons(self):
+        """Add move buttons for both players"""
+        # Clear existing move buttons if any
+        items_to_remove = [item for item in self.children if isinstance(item, Button) and item.custom_id and 'move' in item.custom_id]
+        for item in items_to_remove:
+            self.remove_item(item)
 
-            # Determine who goes first (based on speed)
-            if p1_stats['speed'] >= p2_stats['speed']:
-                first, second = 1, 2
+        # User 1 moves
+        for i, move in enumerate(self.user1_choice.get('moves', [])):
+            button = Button(
+                label=move['name'],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"user1_move_{i}",
+                row=2
+            )
+            button.callback = self.create_move_callback(1, i, move)
+            self.add_item(button)
+
+        # User 2 moves
+        for i, move in enumerate(self.user2_choice.get('moves', [])):
+            button = Button(
+                label=move['name'],
+                style=discord.ButtonStyle.green,
+                custom_id=f"user2_move_{i}",
+                row=3
+            )
+            button.callback = self.create_move_callback(2, i, move)
+            self.add_item(button)
+
+        # Update button states
+        self.update_button_states()
+
+    def create_move_callback(self, player: int, move_index: int, move: dict):
+        """Create a callback for a move button"""
+        async def callback(interaction: discord.Interaction):
+            # Check if it's this player's turn
+            if player != self.current_turn:
+                await interaction.response.send_message("❌ It's not your turn!", ephemeral=True)
+                return
+
+            # Check if correct user
+            if player == 1 and interaction.user.id != self.user1.id:
+                await interaction.response.send_message("❌ This is not your battle!", ephemeral=True)
+                return
+            elif player == 2 and interaction.user.id != self.user2.id:
+                await interaction.response.send_message("❌ This is not your battle!", ephemeral=True)
+                return
+
+            # Process the attack
+            await self.process_turn(interaction, player, move)
+
+        return callback
+
+    async def process_turn(self, interaction: discord.Interaction, attacker: int, move: dict):
+        """Process a single turn of battle"""
+        self.turn_count += 1
+
+        if attacker == 1:
+            attacker_name = self.user1_choice['pokemon_name']
+            defender_name = self.user2_choice['pokemon_name']
+            attacker_stats = self.p1_stats
+            defender_stats = self.p2_stats
+            defender_types = self.user2_choice.get('types', ['normal'])
+        else:
+            attacker_name = self.user2_choice['pokemon_name']
+            defender_name = self.user1_choice['pokemon_name']
+            attacker_stats = self.p2_stats
+            defender_stats = self.p1_stats
+            defender_types = self.user1_choice.get('types', ['normal'])
+
+        # Calculate damage
+        damage = self.calculate_damage(move, attacker_stats, defender_stats, defender_types)
+
+        # Build turn log
+        self.battle_log.append(f"**Turn {self.turn_count}:**")
+        self.battle_log.append(f"⚡ **{attacker_name}** used **{move['name']}**!")
+
+        if damage == 0:
+            self.battle_log.append(f"💨 The attack missed!")
+        else:
+            # Apply damage
+            if attacker == 1:
+                self.p2_hp -= damage
+                self.p2_hp = max(0, self.p2_hp)
             else:
-                first, second = 2, 1
+                self.p1_hp -= damage
+                self.p1_hp = max(0, self.p1_hp)
 
-            # First attacker
-            if first == 1 and p1_hp > 0:
-                damage = self.calculate_damage(p1_stats, p2_stats, p1_types, p2_types)
-                p2_hp -= damage
-                type_eff = pkmn.get_type_effectiveness(p1_types, p2_types)
-
+            # Type effectiveness message
+            type_eff = pkmn.get_type_effectiveness([move['type']], defender_types)
+            if type_eff == 0:
+                effect_text = "It has no effect..."
+            elif type_eff > 1:
+                effect_text = "It's super effective!"
+            elif type_eff < 1:
+                effect_text = "It's not very effective..."
+            else:
                 effect_text = ""
-                if type_eff == 0:
-                    effect_text = "It has no effect..."
-                elif type_eff > 1:
-                    effect_text = "It's super effective!"
-                elif type_eff < 1:
-                    effect_text = "It's not very effective..."
 
-                self.battle_log.append(f"⚡ **{self.user1_choice['pokemon_name']}** attacks! {effect_text}")
-                self.battle_log.append(f"💥 Dealt {damage} damage! **{self.user2_choice['pokemon_name']}** HP: {max(0, p2_hp)}/{p2_stats['hp']}")
+            if effect_text:
+                self.battle_log.append(f"✨ {effect_text}")
 
-                if p2_hp <= 0:
-                    break
+            current_hp = self.p2_hp if attacker == 1 else self.p1_hp
+            max_hp = self.p2_max_hp if attacker == 1 else self.p1_max_hp
+            self.battle_log.append(f"💥 Dealt {damage} damage! **{defender_name}** HP: {current_hp}/{max_hp}")
 
-            # Second attacker
-            if second == 2 and p2_hp > 0:
-                damage = self.calculate_damage(p2_stats, p1_stats, p2_types, p1_types)
-                p1_hp -= damage
-                type_eff = pkmn.get_type_effectiveness(p2_types, p1_types)
+        self.battle_log.append("")
 
-                effect_text = ""
-                if type_eff == 0:
-                    effect_text = "It has no effect..."
-                elif type_eff > 1:
-                    effect_text = "It's super effective!"
-                elif type_eff < 1:
-                    effect_text = "It's not very effective..."
-
-                self.battle_log.append(f"⚡ **{self.user2_choice['pokemon_name']}** attacks! {effect_text}")
-                self.battle_log.append(f"💥 Dealt {damage} damage! **{self.user1_choice['pokemon_name']}** HP: {max(0, p1_hp)}/{p1_stats['hp']}")
-
-                if p1_hp <= 0:
-                    break
-
-            self.battle_log.append("")
-
-        # Determine winner
-        if p1_hp > p2_hp:
+        # Check for winner
+        if self.p1_hp <= 0:
+            self.winner = 2
+            self.battle_log.append(f"🏆 **{self.user2.display_name}'s {self.user2_choice['pokemon_name']} wins!**")
+            await self.end_battle()
+        elif self.p2_hp <= 0:
             self.winner = 1
             self.battle_log.append(f"🏆 **{self.user1.display_name}'s {self.user1_choice['pokemon_name']} wins!**")
+            await self.end_battle()
+        else:
+            # Switch turns
+            self.current_turn = 2 if self.current_turn == 1 else 1
+            self.update_button_states()
+
+        await self.update_display(interaction)
+
+    def update_button_states(self):
+        """Enable/disable buttons based on current turn"""
+        for item in self.children:
+            if isinstance(item, Button) and item.custom_id and 'move' in item.custom_id:
+                if 'user1' in item.custom_id:
+                    item.disabled = (self.current_turn != 1)
+                elif 'user2' in item.custom_id:
+                    item.disabled = (self.current_turn != 2)
+
+    async def end_battle(self):
+        """Clean up battle and record results"""
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+
+        # Record battle
+        if self.winner == 1:
             winner_id, loser_id = self.user1.id, self.user2.id
             winner_pokemon_id, loser_pokemon_id = self.user1_choice['id'], self.user2_choice['id']
             winner_name, loser_name = self.user1_choice['pokemon_name'], self.user2_choice['pokemon_name']
         else:
-            self.winner = 2
-            self.battle_log.append(f"🏆 **{self.user2.display_name}'s {self.user2_choice['pokemon_name']} wins!**")
             winner_id, loser_id = self.user2.id, self.user1.id
             winner_pokemon_id, loser_pokemon_id = self.user2_choice['id'], self.user1_choice['id']
             winner_name, loser_name = self.user2_choice['pokemon_name'], self.user1_choice['pokemon_name']
 
-        # Record battle
         await db.record_battle(
             self.guild_id, winner_id, loser_id,
             winner_pokemon_id, loser_pokemon_id,
-            winner_name, loser_name, turn
+            winner_name, loser_name, self.turn_count
         )
 
         # Award XP
-        await db.add_xp(winner_id, self.guild_id, 50)  # Winner gets 50 XP
-        await db.add_xp(loser_id, self.guild_id, 10)   # Loser gets 10 XP
+        await db.add_xp(winner_id, self.guild_id, 50)
+        await db.add_xp(loser_id, self.guild_id, 10)
 
     def create_embed(self):
         """Create the battle embed"""
@@ -642,29 +809,59 @@ class BattleView(View):
 
             embed.set_footer(text="Select your Pokemon and click 'Ready to Battle!' when ready")
         else:
-            # Battle results - need to truncate to fit Discord limits
-            # Discord limits: description 4096 chars, field value 1024 chars
-
-            # Build description from battle log
-            description_lines = []
-            description_length = 0
-            max_desc_length = 4000  # Leave buffer
-
-            for line in self.battle_log:
-                line_length = len(line) + 1  # +1 for newline
-                if description_length + line_length > max_desc_length:
-                    description_lines.append("...(battle log truncated)")
-                    break
-                description_lines.append(line)
-                description_length += line_length
+            # Active battle
+            if self.winner:
+                title = "⚔️ Battle Complete!"
+                color = discord.Color.gold()
+            else:
+                turn_player = self.user1.display_name if self.current_turn == 1 else self.user2.display_name
+                title = f"⚔️ Battle - {turn_player}'s Turn!"
+                color = discord.Color.blue() if self.current_turn == 1 else discord.Color.green()
 
             embed = discord.Embed(
-                title="⚔️ Battle Results!",
-                description='\n'.join(description_lines),
-                color=discord.Color.gold() if self.winner else discord.Color.red()
+                title=title,
+                color=color
             )
 
+            # HP bars
+            p1_hp_bar = self.create_hp_bar(self.p1_hp, self.p1_max_hp)
+            p2_hp_bar = self.create_hp_bar(self.p2_hp, self.p2_max_hp)
+
+            embed.add_field(
+                name=f"{self.user1.display_name}'s {self.user1_choice['pokemon_name']}",
+                value=f"{p1_hp_bar} {self.p1_hp}/{self.p1_max_hp} HP",
+                inline=False
+            )
+
+            embed.add_field(
+                name=f"{self.user2.display_name}'s {self.user2_choice['pokemon_name']}",
+                value=f"{p2_hp_bar} {self.p2_hp}/{self.p2_max_hp} HP",
+                inline=False
+            )
+
+            # Battle log (last 10 lines to avoid character limit)
+            log_lines = self.battle_log[-10:]
+            if log_lines:
+                embed.add_field(
+                    name="Battle Log",
+                    value='\n'.join(log_lines),
+                    inline=False
+                )
+
         return embed
+
+    def create_hp_bar(self, current: int, maximum: int) -> str:
+        """Create a visual HP bar"""
+        if maximum == 0:
+            percentage = 0
+        else:
+            percentage = current / maximum
+
+        bar_length = 10
+        filled = int(percentage * bar_length)
+        empty = bar_length - filled
+
+        return f"[{'█' * filled}{'░' * empty}]"
 
     async def update_display(self, interaction: discord.Interaction):
         """Update the display"""
@@ -682,11 +879,15 @@ class BattleView(View):
         selected = next((p for p in self.user1_pokemon if p['id'] == catch_id), None)
 
         if selected:
-            # Fetch Pokemon details including types
+            # Fetch Pokemon details including types and moves
             async with aiohttp.ClientSession() as session:
                 pokemon_data = await fetch_pokemon(session, selected['pokemon_id'])
                 if pokemon_data:
                     selected['types'] = pokemon_data['types']
+
+                # Fetch moves
+                moves = await fetch_pokemon_moves(session, selected['pokemon_id'])
+                selected['moves'] = moves
 
             self.user1_choice = selected
             self.user1_ready = False
@@ -703,17 +904,21 @@ class BattleView(View):
         selected = next((p for p in self.user2_pokemon if p['id'] == catch_id), None)
 
         if selected:
-            # Fetch Pokemon details including types
+            # Fetch Pokemon details including types and moves
             async with aiohttp.ClientSession() as session:
                 pokemon_data = await fetch_pokemon(session, selected['pokemon_id'])
                 if pokemon_data:
                     selected['types'] = pokemon_data['types']
 
+                # Fetch moves
+                moves = await fetch_pokemon_moves(session, selected['pokemon_id'])
+                selected['moves'] = moves
+
             self.user2_choice = selected
             self.user2_ready = False
             await self.update_display(interaction)
 
-    @discord.ui.button(label="Ready to Battle!", style=discord.ButtonStyle.green, custom_id="battle_ready")
+    @discord.ui.button(label="Ready to Battle!", style=discord.ButtonStyle.green, custom_id="battle_ready", row=4)
     async def ready_button(self, interaction: discord.Interaction, button: Button):
         """Mark ready for battle"""
         if interaction.user.id not in [self.user1.id, self.user2.id]:
@@ -734,16 +939,15 @@ class BattleView(View):
 
         # Check if both are ready
         if self.user1_ready and self.user2_ready:
-            # Execute battle
-            await self.execute_battle()
+            # Start battle
+            await self.start_battle()
 
-            # Disable all controls
-            for item in self.children:
-                item.disabled = True
+            # Remove the ready button
+            self.remove_item(button)
 
         await self.update_display(interaction)
 
-    @discord.ui.button(label="Forfeit", style=discord.ButtonStyle.red, custom_id="battle_forfeit")
+    @discord.ui.button(label="Forfeit", style=discord.ButtonStyle.red, custom_id="battle_forfeit", row=4)
     async def forfeit_button(self, interaction: discord.Interaction, button: Button):
         """Forfeit the battle"""
         if interaction.user.id not in [self.user1.id, self.user2.id]:
