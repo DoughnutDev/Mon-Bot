@@ -170,9 +170,6 @@ async def on_message(message):
             # Remove active spawn
             del active_spawns[channel_id]
 
-    # Process commands
-    await bot.process_commands(message)
-
 
 @tasks.loop()
 async def spawn_pokemon():
