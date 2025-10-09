@@ -248,6 +248,68 @@ async def get_user_catch_counts(user_id: int, guild_id: int) -> Dict[str, int]:
         return {row['pokemon_name']: row['count'] for row in rows}
 
 
+async def get_pokemon_with_counts(user_id: int, guild_id: int, sort_by: str = 'most_caught') -> List[Dict]:
+    """Get Pokemon with counts, sorted by various criteria"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        # Base query
+        base_query = '''
+            SELECT
+                pokemon_name,
+                pokemon_id,
+                COUNT(*) as count,
+                MAX(caught_at) as last_caught
+            FROM catches
+            WHERE user_id = $1 AND guild_id = $2
+            GROUP BY pokemon_name, pokemon_id
+        '''
+
+        # Add sorting
+        if sort_by == 'most_caught':
+            order_by = 'ORDER BY count DESC, pokemon_name ASC'
+        elif sort_by == 'alphabetical':
+            order_by = 'ORDER BY pokemon_name ASC'
+        elif sort_by == 'pokedex_number':
+            order_by = 'ORDER BY pokemon_id ASC'
+        elif sort_by == 'rarest':
+            order_by = 'ORDER BY count ASC, pokemon_name ASC'
+        elif sort_by == 'recently_caught':
+            order_by = 'ORDER BY last_caught DESC'
+        else:
+            order_by = 'ORDER BY count DESC, pokemon_name ASC'
+
+        query = f'{base_query} {order_by}'
+
+        rows = await conn.fetch(query, user_id, guild_id)
+        return [dict(row) for row in rows]
+
+
+async def get_legendary_pokemon(user_id: int, guild_id: int) -> List[Dict]:
+    """Get only legendary Pokemon from Gen 1"""
+    if not pool:
+        return []
+
+    # Gen 1 legendaries: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
+    legendary_ids = [144, 145, 146, 150, 151]
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                pokemon_name,
+                pokemon_id,
+                COUNT(*) as count,
+                MAX(caught_at) as last_caught
+            FROM catches
+            WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = ANY($3)
+            GROUP BY pokemon_name, pokemon_id
+            ORDER BY pokemon_id ASC
+        ''', user_id, guild_id, legendary_ids)
+
+        return [dict(row) for row in rows]
+
+
 async def get_user_stats(user_id: int, guild_id: int) -> Dict:
     """Get catch statistics for a user"""
     if not pool:

@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from discord.ui import Select, View, Button
 import aiohttp
 import asyncio
 import random
@@ -383,6 +384,129 @@ async def spawn_command(interaction: discord.Interaction):
         print(f"Error in spawn command: {e}")
 
 
+# Interactive Pokedex View
+class PokedexView(View):
+    def __init__(self, user_id: int, guild_id: int, username: str):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.username = username
+        self.current_page = 0
+        self.sort_by = 'most_caught'
+        self.pokemon_list = []
+        self.per_page = 10
+
+        # Add dropdown for sorting
+        self.sort_select = Select(
+            placeholder="Choose sorting method...",
+            options=[
+                discord.SelectOption(label="🔢 Most Caught", value="most_caught", description="Sort by catch count", default=True),
+                discord.SelectOption(label="🔤 Alphabetical", value="alphabetical", description="Sort A-Z"),
+                discord.SelectOption(label="📋 Pokedex Number", value="pokedex_number", description="Sort by Pokedex #"),
+                discord.SelectOption(label="⭐ Rarest (Caught Once)", value="rarest", description="Pokemon caught only once"),
+                discord.SelectOption(label="👑 Legendaries Only", value="legendaries", description="Legendary Pokemon"),
+                discord.SelectOption(label="📅 Recently Caught", value="recently_caught", description="Last unique catches"),
+            ]
+        )
+        self.sort_select.callback = self.sort_callback
+        self.add_item(self.sort_select)
+
+    async def sort_callback(self, interaction: discord.Interaction):
+        """Handle sort selection"""
+        self.sort_by = self.sort_select.values[0]
+        self.current_page = 0  # Reset to first page
+
+        # Update dropdown to show selected option
+        for option in self.sort_select.options:
+            option.default = (option.value == self.sort_by)
+
+        await self.update_display(interaction)
+
+    async def load_pokemon(self):
+        """Load Pokemon based on current sort"""
+        if self.sort_by == 'legendaries':
+            self.pokemon_list = await db.get_legendary_pokemon(self.user_id, self.guild_id)
+        else:
+            self.pokemon_list = await db.get_pokemon_with_counts(self.user_id, self.guild_id, self.sort_by)
+
+    def create_embed(self, stats: dict):
+        """Create the Pokedex embed"""
+        total_pages = max(1, (len(self.pokemon_list) + self.per_page - 1) // self.per_page)
+
+        # Get sort display name
+        sort_names = {
+            'most_caught': '🔢 Most Caught',
+            'alphabetical': '🔤 Alphabetical',
+            'pokedex_number': '📋 Pokedex Number',
+            'rarest': '⭐ Rarest (x1)',
+            'legendaries': '👑 Legendaries',
+            'recently_caught': '📅 Recently Caught'
+        }
+        sort_display = sort_names.get(self.sort_by, 'Most Caught')
+
+        embed = discord.Embed(
+            title=f"{self.username}'s Pokedex",
+            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/151 ({stats['unique']/151*100:.1f}%)",
+            color=discord.Color.blue()
+        )
+
+        # Get Pokemon for current page
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_pokemon = self.pokemon_list[start_idx:end_idx]
+
+        if page_pokemon:
+            # Create ranked list
+            pokemon_text = []
+            for idx, poke in enumerate(page_pokemon, start=start_idx + 1):
+                count_display = f"x{poke['count']}" if poke['count'] > 1 else "x1"
+                pokemon_text.append(f"`#{idx:2d}` #{poke['pokemon_id']:03d} {poke['pokemon_name']:<12} {count_display}")
+
+            embed.add_field(
+                name=f"📊 Showing: {sort_display}",
+                value='\n'.join(pokemon_text),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name=f"📊 {sort_display}",
+                value="No Pokemon found with this filter.",
+                inline=False
+            )
+
+        embed.set_footer(text=f"Page {self.current_page + 1}/{total_pages}")
+
+        return embed
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the display with new data"""
+        await self.load_pokemon()
+        stats = await db.get_user_stats(self.user_id, self.guild_id)
+        embed = self.create_embed(stats)
+
+        # Update button states
+        total_pages = max(1, (len(self.pokemon_list) + self.per_page - 1) // self.per_page)
+        self.prev_button.disabled = (self.current_page == 0)
+        self.next_button.disabled = (self.current_page >= total_pages - 1)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.gray)
+    async def prev_button(self, interaction: discord.Interaction, button: Button):
+        """Previous page button"""
+        if self.current_page > 0:
+            self.current_page -= 1
+        await self.update_display(interaction)
+
+    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.gray)
+    async def next_button(self, interaction: discord.Interaction, button: Button):
+        """Next page button"""
+        total_pages = max(1, (len(self.pokemon_list) + self.per_page - 1) // self.per_page)
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+        await self.update_display(interaction)
+
+
 @bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
 @app_commands.describe(member='The user whose Pokedex you want to view (optional)')
 async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
@@ -405,22 +529,17 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
         await interaction.followup.send(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
-    # Get recent catches
-    catches = await db.get_user_catches(user_id, guild_id)
+    # Create interactive view
+    view = PokedexView(user_id, guild_id, target.display_name)
+    await view.load_pokemon()
+    embed = view.create_embed(stats)
 
-    embed = discord.Embed(
-        title=f"{target.display_name}'s Pokedex",
-        description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}",
-        color=discord.Color.blue()
-    )
+    # Set initial button states
+    total_pages = max(1, (len(view.pokemon_list) + view.per_page - 1) // view.per_page)
+    view.prev_button.disabled = True  # Start on page 1
+    view.next_button.disabled = (total_pages <= 1)
 
-    # Show last 10 catches
-    recent = catches[:10]
-    recent_str = '\n'.join([f"#{c['pokemon_id']} {c['pokemon_name']}" for c in recent])
-
-    embed.add_field(name="Recent Catches", value=recent_str or "None", inline=False)
-
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 @bot.tree.command(name='count', description='See how many of each Pokemon you\'ve caught')
