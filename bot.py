@@ -95,6 +95,33 @@ def create_catch_embed(pokemon, user, time_taken):
     return embed
 
 
+def create_level_up_embed(user, new_level, rewards):
+    """Create an embed for battlepass level up"""
+    embed = discord.Embed(
+        title=f"🎉 Level Up!",
+        description=f"{user.display_name} reached **Level {new_level}**!",
+        color=discord.Color.purple()
+    )
+
+    if rewards:
+        rewards_text = []
+        for reward in rewards:
+            if reward['type'] == 'pack':
+                pack_word = 'pack' if reward['amount'] == 1 else 'packs'
+                rewards_text.append(f"Level {reward['level']}: {reward['amount']} {pack_word}")
+
+        if rewards_text:
+            embed.add_field(
+                name="🎁 Rewards Earned",
+                value='\n'.join(rewards_text),
+                inline=False
+            )
+
+    embed.set_footer(text="Use /pack to open your packs!")
+
+    return embed
+
+
 @bot.event
 async def on_ready():
     """Called when bot is ready"""
@@ -149,9 +176,21 @@ async def on_message(message):
                 pokemon_types=pokemon['types']
             )
 
+            # Add XP to battlepass (10 XP per catch)
+            xp_result = await db.add_xp(user_id, guild_id, xp_amount=10)
+
             # Send catch confirmation with time
             embed = create_catch_embed(pokemon, message.author, time_taken)
             await message.channel.send(embed=embed)
+
+            # If user leveled up, send level up message
+            if xp_result and xp_result['leveled_up']:
+                level_embed = create_level_up_embed(
+                    message.author,
+                    xp_result['new_level'],
+                    xp_result['rewards']
+                )
+                await message.channel.send(embed=level_embed)
 
             # Remove active spawn
             del active_spawns[channel_id]
@@ -375,6 +414,157 @@ async def count(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='battlepass', description='View your Season 1 battlepass progress')
+async def battlepass(interaction: discord.Interaction):
+    """View battlepass progress"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get battlepass progress
+    progress = await db.get_battlepass_progress(user_id, guild_id, season=1)
+    pack_count = await db.get_pack_count(user_id, guild_id)
+
+    # Get all rewards for Season 1
+    all_rewards = await db.get_battlepass_rewards(season=1)
+
+    level = progress.get('level', 1)
+    xp = progress.get('xp', 0)
+
+    # Calculate XP progress for current level
+    current_level_xp = xp % 100
+    xp_needed = 100
+
+    # Create embed
+    embed = discord.Embed(
+        title="Season 1 Battlepass",
+        description=f"{interaction.user.display_name}'s Progress",
+        color=discord.Color.purple()
+    )
+
+    embed.add_field(
+        name="📊 Level",
+        value=f"**{level}** / 50",
+        inline=True
+    )
+
+    embed.add_field(
+        name="⭐ XP",
+        value=f"{current_level_xp} / {xp_needed}",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📦 Packs",
+        value=f"{pack_count}",
+        inline=True
+    )
+
+    # Show next rewards
+    next_rewards = [r for r in all_rewards if r['level'] > level][:3]
+    if next_rewards:
+        rewards_text = []
+        for reward in next_rewards:
+            pack_word = 'pack' if reward['reward_value'] == 1 else 'packs'
+            rewards_text.append(f"Level {reward['level']}: {reward['reward_value']} {pack_word}")
+
+        embed.add_field(
+            name="🎁 Upcoming Rewards",
+            value='\n'.join(rewards_text),
+            inline=False
+        )
+
+    embed.set_footer(text="Catch Pokemon to gain 10 XP each!")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name='pack', description='Open a Pokemon pack (10 random Pokemon)')
+async def pack(interaction: discord.Interaction):
+    """Open a Pokemon pack"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Check pack count
+    pack_count = await db.get_pack_count(user_id, guild_id)
+
+    if pack_count < 1:
+        embed = discord.Embed(
+            title="No Packs Available",
+            description="You don't have any packs to open!\n\nEarn packs by leveling up your battlepass.",
+            color=discord.Color.red()
+        )
+        embed.add_field(
+            name="How to get packs",
+            value="Use `/battlepass` to see your progress and upcoming rewards!",
+            inline=False
+        )
+        await interaction.followup.send(embed=embed)
+        return
+
+    # Use one pack
+    success = await db.use_pack(user_id, guild_id)
+
+    if not success:
+        await interaction.followup.send("Failed to open pack. Please try again!")
+        return
+
+    # Generate 10 random Pokemon
+    pokemon_list = []
+    async with aiohttp.ClientSession() as session:
+        for _ in range(10):
+            pokemon = await fetch_pokemon(session)
+            if pokemon:
+                pokemon_list.append(pokemon)
+                # Add to user's collection
+                await db.add_catch(
+                    user_id=user_id,
+                    guild_id=guild_id,
+                    pokemon_name=pokemon['name'],
+                    pokemon_id=pokemon['id'],
+                    pokemon_types=pokemon['types']
+                )
+
+    if not pokemon_list:
+        await interaction.followup.send("Error opening pack. Please try again!")
+        return
+
+    # Create pack opening embed
+    embed = discord.Embed(
+        title="📦 Pack Opened!",
+        description=f"{interaction.user.display_name} opened a pack!",
+        color=discord.Color.gold()
+    )
+
+    # List all Pokemon from the pack
+    pokemon_names = [f"#{p['id']} {p['name']}" for p in pokemon_list]
+    # Split into 2 columns for better display
+    col1 = '\n'.join(pokemon_names[:5])
+    col2 = '\n'.join(pokemon_names[5:])
+
+    embed.add_field(name="Pokemon (1-5)", value=col1, inline=True)
+    embed.add_field(name="Pokemon (6-10)", value=col2, inline=True)
+
+    remaining_packs = pack_count - 1
+    pack_word = 'pack' if remaining_packs == 1 else 'packs'
+    embed.set_footer(text=f"Remaining packs: {remaining_packs} {pack_word}")
+
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
@@ -386,7 +576,31 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="Catching",
-        value="Type `ball` when a Pokemon spawns to catch it!",
+        value="Type `ball` when a Pokemon spawns to catch it! (+10 XP)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/battlepass",
+        value="View your Season 1 battlepass progress and rewards",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/pack",
+        value="Open a Pokemon pack (10 random Pokemon)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/pokedex [@user]",
+        value="View your Pokedex (or another user's)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/count",
+        value="See how many of each Pokemon you've caught",
         inline=False
     )
 
@@ -402,17 +616,7 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
 
-    embed.add_field(
-        name="/pokedex [@user]",
-        value="View your Pokedex (or another user's)",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/count",
-        value="See how many of each Pokemon you've caught",
-        inline=False
-    )
+    embed.set_footer(text="Season 1 Battlepass: Catch Pokemon to earn XP and unlock packs!")
 
     await interaction.response.send_message(embed=embed)
 
