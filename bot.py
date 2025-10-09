@@ -6,17 +6,18 @@ import asyncio
 import random
 import os
 from dotenv import load_dotenv
-import json
 from datetime import datetime
+
+# Import database functions
+import database as db
 
 # Load environment variables
 load_dotenv()
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_TOKEN')
-SPAWN_CHANNELS = os.getenv('SPAWN_CHANNELS', '').split(',')
-SPAWN_INTERVAL_MIN = int(os.getenv('SPAWN_INTERVAL_MIN', 180))  # Default 3 minutes
-SPAWN_INTERVAL_MAX = int(os.getenv('SPAWN_INTERVAL_MAX', 600))  # Default 10 minutes
+DEFAULT_SPAWN_MIN = 180  # 3 minutes
+DEFAULT_SPAWN_MAX = 600  # 10 minutes
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -27,26 +28,6 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variables
 active_spawns = {}  # {channel_id: {pokemon_data, spawn_time}}
-user_catches = {}  # Store caught pokemon per user
-
-# File to store user data
-DATA_FILE = 'user_data.json'
-
-
-def load_user_data():
-    """Load user catch data from file"""
-    global user_catches
-    try:
-        with open(DATA_FILE, 'r') as f:
-            user_catches = json.load(f)
-    except FileNotFoundError:
-        user_catches = {}
-
-
-def save_user_data():
-    """Save user catch data to file"""
-    with open(DATA_FILE, 'w') as f:
-        json.dump(user_catches, f, indent=4)
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -112,8 +93,8 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     print(f'Bot is in {len(bot.guilds)} guilds')
 
-    # Load user data
-    load_user_data()
+    # Setup database
+    await db.setup_database()
 
     # Sync slash commands
     try:
@@ -123,11 +104,9 @@ async def on_ready():
         print(f'Failed to sync commands: {e}')
 
     # Start spawn loop
-    if SPAWN_CHANNELS and SPAWN_CHANNELS[0]:
+    if not spawn_pokemon.is_running():
         spawn_pokemon.start()
-        print(f'Pokemon spawning enabled in {len(SPAWN_CHANNELS)} channels')
-    else:
-        print('No spawn channels configured. Set SPAWN_CHANNELS in .env')
+        print('Pokemon spawn loop started')
 
 
 @bot.event
@@ -143,25 +122,17 @@ async def on_message(message):
 
         if channel_id in active_spawns:
             pokemon = active_spawns[channel_id]
-            user_id = str(message.author.id)
+            user_id = message.author.id
+            guild_id = message.guild.id if message.guild else 0
 
-            # Initialize user data if needed
-            if user_id not in user_catches:
-                user_catches[user_id] = {
-                    'username': str(message.author),
-                    'pokemon': []
-                }
-
-            # Add pokemon to user's collection
-            user_catches[user_id]['pokemon'].append({
-                'name': pokemon['name'],
-                'id': pokemon['id'],
-                'caught_at': datetime.now().isoformat(),
-                'types': pokemon['types']
-            })
-
-            # Save data
-            save_user_data()
+            # Save catch to database
+            await db.add_catch(
+                user_id=user_id,
+                guild_id=guild_id,
+                pokemon_name=pokemon['name'],
+                pokemon_id=pokemon['id'],
+                pokemon_types=pokemon['types']
+            )
 
             # Send catch confirmation
             embed = create_catch_embed(pokemon, message.author)
@@ -171,76 +142,114 @@ async def on_message(message):
             del active_spawns[channel_id]
 
 
-@tasks.loop()
+@tasks.loop(seconds=60)  # Check every minute
 async def spawn_pokemon():
-    """Periodically spawn Pokemon in designated channels with random intervals"""
-    # Wait a random interval before spawning
-    wait_time = random.randint(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
-    print(f"Next spawn in {wait_time} seconds ({wait_time//60} minutes)")
-    await asyncio.sleep(wait_time)
+    """Periodically spawn Pokemon in designated channels"""
+    # Get all configured spawn channels from database
+    guild_channels = await db.get_all_spawn_channels()
 
-    if not SPAWN_CHANNELS or not SPAWN_CHANNELS[0]:
+    if not guild_channels:
         return
 
-    # Pick a random channel from configured channels
-    channel_id = random.choice([c.strip() for c in SPAWN_CHANNELS if c.strip()])
+    # For each guild, check if it's time to spawn
+    for guild_id, channel_ids in guild_channels.items():
+        if not channel_ids:
+            continue
 
-    try:
-        channel = bot.get_channel(int(channel_id))
+        # Random chance to spawn (creates randomness)
+        if random.random() > 0.15:  # 15% chance per minute = avg ~6-7 min
+            continue
 
-        if channel is None:
-            print(f"Could not find channel {channel_id}")
-            return
+        # Pick a random channel from this guild's configured channels
+        channel_id = random.choice(channel_ids)
 
-        # Don't spawn if there's already an active spawn in this channel
-        if str(channel.id) in active_spawns:
-            print(f"Skipping spawn - {channel.name} already has an active spawn")
-            return
+        # Skip if there's already an active spawn in this channel
+        if str(channel_id) in active_spawns:
+            continue
 
-        # Fetch random Pokemon
-        async with aiohttp.ClientSession() as session:
-            pokemon = await fetch_pokemon(session)
+        try:
+            channel = bot.get_channel(channel_id)
 
-        if pokemon:
-            # Store active spawn
-            active_spawns[str(channel.id)] = pokemon
+            if channel is None:
+                continue
 
-            # Send spawn message
-            embed = create_spawn_embed(pokemon)
-            await channel.send(embed=embed)
+            # Fetch random Pokemon
+            async with aiohttp.ClientSession() as session:
+                pokemon = await fetch_pokemon(session)
 
-            print(f"Spawned {pokemon['name']} in {channel.name}")
+            if pokemon:
+                # Store active spawn
+                active_spawns[str(channel.id)] = pokemon
 
-    except Exception as e:
-        print(f"Error spawning Pokemon: {e}")
+                # Send spawn message
+                embed = create_spawn_embed(pokemon)
+                await channel.send(embed=embed)
+
+                print(f"Spawned {pokemon['name']} in {channel.guild.name}#{channel.name}")
+
+        except Exception as e:
+            print(f"Error spawning Pokemon in channel {channel_id}: {e}")
+
+
+@bot.tree.command(name='setup', description='Configure Mon Bot for your server (Admin only)')
+@app_commands.describe(channel='The channel where Pokemon should spawn')
+@app_commands.default_permissions(administrator=True)
+async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
+    """Setup command for server admins to configure spawn channels"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Add spawn channel to database
+    await db.set_spawn_channel(interaction.guild.id, channel.id)
+
+    embed = discord.Embed(
+        title="Mon Bot Setup Complete!",
+        description=f"Pokemon will now spawn in {channel.mention}",
+        color=discord.Color.green()
+    )
+
+    embed.add_field(
+        name="What's Next?",
+        value="Pokemon will randomly appear in this channel. Type `ball` to catch them!",
+        inline=False
+    )
+
+    await interaction.response.send_message(embed=embed)
+    print(f"Setup completed for {interaction.guild.name} - Channel: #{channel.name}")
 
 
 @bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
 @app_commands.describe(member='The user whose Pokedex you want to view (optional)')
 async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
     """View your or another user's caught Pokemon"""
-    target = member or interaction.user
-    user_id = str(target.id)
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
 
-    if user_id not in user_catches or not user_catches[user_id]['pokemon']:
+    target = member or interaction.user
+    user_id = target.id
+    guild_id = interaction.guild.id
+
+    # Get user stats from database
+    stats = await db.get_user_stats(user_id, guild_id)
+
+    if stats['total'] == 0:
         await interaction.response.send_message(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
-    pokemon_list = user_catches[user_id]['pokemon']
-    total = len(pokemon_list)
-
-    # Count unique Pokemon
-    unique = len(set(p['name'] for p in pokemon_list))
+    # Get recent catches
+    catches = await db.get_user_catches(user_id, guild_id)
 
     embed = discord.Embed(
         title=f"{target.display_name}'s Pokedex",
-        description=f"**Total Caught:** {total}\n**Unique Pokemon:** {unique}",
+        description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}",
         color=discord.Color.blue()
     )
 
     # Show last 10 catches
-    recent = pokemon_list[-10:]
-    recent_str = '\n'.join([f"#{p['id']} {p['name']}" for p in reversed(recent)])
+    recent = catches[:10]
+    recent_str = '\n'.join([f"#{c['pokemon_id']} {c['pokemon_name']}" for c in recent])
 
     embed.add_field(name="Recent Catches", value=recent_str or "None", inline=False)
 
@@ -250,22 +259,19 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
 @bot.tree.command(name='count', description='See how many of each Pokemon you\'ve caught')
 async def count(interaction: discord.Interaction):
     """Show how many of each Pokemon you've caught"""
-    user_id = str(interaction.user.id)
-
-    if user_id not in user_catches or not user_catches[user_id]['pokemon']:
-        await interaction.response.send_message("You haven't caught any Pokemon yet!")
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
-    pokemon_list = user_catches[user_id]['pokemon']
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
 
-    # Count each Pokemon
-    counts = {}
-    for p in pokemon_list:
-        name = p['name']
-        counts[name] = counts.get(name, 0) + 1
+    # Get catch counts from database
+    counts = await db.get_user_catch_counts(user_id, guild_id)
 
-    # Sort by count
-    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    if not counts:
+        await interaction.response.send_message("You haven't caught any Pokemon yet!")
+        return
 
     # Create embed
     embed = discord.Embed(
@@ -274,6 +280,7 @@ async def count(interaction: discord.Interaction):
     )
 
     # Show top 15
+    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
     count_str = '\n'.join([f"{name}: {count}" for name, count in sorted_counts[:15]])
     embed.add_field(name="Top Pokemon", value=count_str, inline=False)
 
@@ -299,6 +306,12 @@ async def help_command(interaction: discord.Interaction):
     )
 
     embed.add_field(
+        name="/setup #channel",
+        value="(Admin only) Configure which channel Pokemon spawn in",
+        inline=False
+    )
+
+    embed.add_field(
         name="/pokedex [@user]",
         value="View your Pokedex (or another user's)",
         inline=False
@@ -313,10 +326,22 @@ async def help_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
+# Cleanup on shutdown
+@bot.event
+async def on_shutdown():
+    """Cleanup when bot shuts down"""
+    await db.close_database()
+
+
 # Run the bot
 if __name__ == '__main__':
     if not TOKEN:
         print("ERROR: DISCORD_TOKEN not found in .env file!")
         print("Please create a .env file with your bot token.")
     else:
-        bot.run(TOKEN)
+        try:
+            bot.run(TOKEN)
+        finally:
+            # Ensure database connection is closed
+            import asyncio
+            asyncio.run(db.close_database())

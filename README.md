@@ -6,8 +6,11 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 - Random Pokemon spawning in designated channels
 - Catch Pokemon by typing `ball` in chat
-- Track your caught Pokemon with `!pokedex`
-- See your collection statistics with `!count`
+- Multi-server support - each Discord server has independent configuration
+- Admin `/setup` command to configure spawn channels per server
+- Track your caught Pokemon with `/pokedex`
+- See your collection statistics with `/count`
+- PostgreSQL database for persistent storage
 - Pokemon data fetched from [PokeAPI](https://pokeapi.co/)
 
 ## Setup Instructions
@@ -16,6 +19,7 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 - Python 3.8 or higher
 - A Discord Bot Token ([Get one here](https://discord.com/developers/applications))
+- PostgreSQL database (local or hosted on Render/Heroku/etc.)
 - Git (optional, for cloning)
 
 ### Installation
@@ -42,20 +46,25 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
    ```env
    DISCORD_TOKEN=your_actual_bot_token_here
-   SPAWN_CHANNELS=123456789012345678,987654321098765432
-   SPAWN_INTERVAL_MIN=180
-   SPAWN_INTERVAL_MAX=600
+   DATABASE_URL=postgresql://username:password@host:port/database
    ```
 
-   **Getting Channel IDs:**
-   - Enable Developer Mode in Discord (Settings > Advanced > Developer Mode)
-   - Right-click on a channel and select "Copy ID"
-   - Paste the ID into `SPAWN_CHANNELS` (comma-separated for multiple channels)
+   **PostgreSQL Database URL Format:**
+   - Local: `postgresql://username:password@localhost:5432/monbot`
+   - Render: Available in the Render dashboard after creating a PostgreSQL instance
+   - The bot will automatically create the necessary tables on first startup
 
 5. **Run the bot**
    ```bash
    python bot.py
    ```
+
+6. **Configure spawn channels in Discord**
+
+   Once the bot is running and added to your server:
+   - Use the `/setup #channel` command (Admin only)
+   - This tells the bot where to spawn Pokemon in your server
+   - You can run `/setup` multiple times to add multiple spawn channels
 
 ## Discord Bot Setup
 
@@ -78,7 +87,11 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 ## Commands
 
-- **`ball`** - Catch a spawned Pokemon (type in chat, no slash needed)
+### Admin Commands
+- **`/setup #channel`** - Configure which channel(s) Pokemon spawn in (Administrator only)
+
+### User Commands
+- **`ball`** - Catch a spawned Pokemon (type in chat when Pokemon appears, no slash needed)
 - **`/pokedex [@user]`** - View your Pokedex or another user's
 - **`/count`** - See how many of each Pokemon you've caught
 - **`/help`** - Display bot commands
@@ -88,47 +101,90 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 ### Environment Variables
 
 - **DISCORD_TOKEN** - Your Discord bot token (required)
-- **SPAWN_CHANNELS** - Comma-separated list of channel IDs where Pokemon will spawn
-- **SPAWN_INTERVAL_MIN** - Minimum time in seconds between spawns (default: 180 = 3 minutes)
-- **SPAWN_INTERVAL_MAX** - Maximum time in seconds between spawns (default: 600 = 10 minutes)
+- **DATABASE_URL** - PostgreSQL connection string (required)
+  - Format: `postgresql://username:password@host:port/database`
+  - Example: `postgresql://user:pass@localhost:5432/monbot`
+
+### In-Discord Configuration
+
+After the bot is running, server administrators can configure spawn channels:
+- Use `/setup #channel` to add a spawn channel to your server
+- Pokemon will randomly spawn in configured channels every 6-7 minutes on average
+- Each Discord server has independent configuration
 
 ## Deploying to Render.com
 
+### Step 1: Create PostgreSQL Database
+
+1. Go to [Render.com](https://render.com/) and sign in
+2. Click "New +" and select "PostgreSQL"
+3. Configure your database:
+   - **Name:** `monbot-db` (or any name you prefer)
+   - **Region:** Choose closest to you
+   - **PostgreSQL Version:** 15 or higher
+   - **Plan:** Free (90 days free, then $7/month)
+4. Click "Create Database"
+5. Once created, copy the **Internal Database URL** from the database dashboard
+
+### Step 2: Deploy the Bot
+
 1. Push your code to GitHub (make sure `.env` is in `.gitignore`!)
-2. Go to [Render.com](https://render.com/)
-3. Create a new "Background Worker"
-4. Connect your GitHub repository
-5. Set the following:
+2. In Render, click "New +" and select "Background Worker"
+3. Connect your GitHub repository
+4. Configure the service:
+   - **Name:** `mon-bot` (or any name)
    - **Build Command:** `pip install -r requirements.txt`
    - **Start Command:** `python bot.py`
-6. Add environment variables in Render dashboard:
-   - `DISCORD_TOKEN`
-   - `SPAWN_CHANNELS`
-   - `SPAWN_INTERVAL_MIN`
-   - `SPAWN_INTERVAL_MAX`
-7. Deploy!
+5. Add environment variables:
+   - `DISCORD_TOKEN` - Your Discord bot token
+   - `DATABASE_URL` - Paste the Internal Database URL from Step 1
+6. Click "Create Background Worker"
+7. The bot will deploy automatically!
 
-## File Storage
+### Step 3: Configure in Discord
 
-Caught Pokemon are stored in `user_data.json` in the bot directory. This file is automatically created when the first Pokemon is caught.
+1. Invite the bot to your Discord server using the OAuth URL from Discord Developer Portal
+2. In your Discord server, run `/setup #channel` to configure where Pokemon should spawn
+3. Done! Pokemon will start spawning automatically
 
-**Note:** On Render.com, this file will reset when the bot restarts. For persistent storage, consider:
-- Using Render's Disk storage feature
-- Implementing a database (PostgreSQL, MongoDB, etc.)
+## Database Storage
+
+All data is stored in a PostgreSQL database:
+
+### Tables
+- **guilds** - Stores server configurations (spawn channels, settings)
+- **catches** - Records all Pokemon catches with user and server information
+
+### Features
+- Automatic table creation on first startup
+- Connection pooling for performance
+- Per-server data isolation - each Discord server's data is independent
+- Persistent storage - data survives bot restarts
+
+**Note:** Make sure your DATABASE_URL is correctly configured. The bot will print an error if it cannot connect to the database.
 
 ## Troubleshooting
 
 **Bot doesn't respond:**
 - Make sure Message Content Intent is enabled in Discord Developer Portal
 - Check that the bot has permission to send messages in the channel
+- Verify slash commands are synced (check bot console for "Synced X slash command(s)")
 
 **Pokemon don't spawn:**
-- Verify `SPAWN_CHANNELS` contains valid channel IDs
-- Make sure the bot has access to those channels
+- Make sure you've run `/setup #channel` command in your Discord server
+- Check that the bot has permission to send messages and embeds in that channel
 - Check the bot console for error messages
+- Spawn chance is 15% per minute (average 6-7 minutes between spawns)
+
+**Database connection errors:**
+- Verify your `DATABASE_URL` is correctly formatted
+- Check that your PostgreSQL server is running and accessible
+- For Render: Make sure you're using the Internal Database URL (not External)
+- Check the bot console for specific database error messages
 
 **Import errors:**
 - Make sure you've installed all requirements: `pip install -r requirements.txt`
+- Verify Python version is 3.8 or higher
 
 ## License
 
