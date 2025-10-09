@@ -125,26 +125,36 @@ def create_level_up_embed(user, new_level, rewards):
 @bot.event
 async def on_ready():
     """Called when bot is ready"""
-    print(f'{bot.user} has connected to Discord!')
-    print(f'Bot is in {len(bot.guilds)} guilds')
+    print(f'{bot.user} has connected to Discord!', flush=True)
+    print(f'Bot is in {len(bot.guilds)} guilds', flush=True)
 
     # Setup database
-    await db.setup_database()
+    print('Setting up database...', flush=True)
+    try:
+        await db.setup_database()
+        print('Database setup complete!', flush=True)
+    except Exception as e:
+        print(f'ERROR: Database setup failed: {e}', flush=True)
+        import traceback
+        traceback.print_exc()
 
     # Sync slash commands
+    print('Syncing slash commands...', flush=True)
     try:
         # Clear existing commands first to ensure fresh sync
         bot.tree.clear_commands(guild=None)
         synced = await bot.tree.sync()
-        print(f'Synced {len(synced)} slash command(s)')
-        print(f'Commands: {[cmd.name for cmd in synced]}')
+        print(f'Synced {len(synced)} slash command(s)', flush=True)
+        print(f'Commands: {[cmd.name for cmd in synced]}', flush=True)
     except Exception as e:
-        print(f'Failed to sync commands: {e}')
+        print(f'Failed to sync commands: {e}', flush=True)
+        import traceback
+        traceback.print_exc()
 
     # Start spawn loop
     if not spawn_pokemon.is_running():
         spawn_pokemon.start()
-        print('Pokemon spawn loop started')
+        print('Pokemon spawn loop started', flush=True)
 
 
 @bot.event
@@ -571,6 +581,9 @@ async def pack(interaction: discord.Interaction):
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
+    # Defer immediately to prevent timeout
+    await interaction.response.defer(ephemeral=True)
+
     embed = discord.Embed(
         title="Mon Bot Commands",
         description="Catch Pokemon that randomly appear in chat!",
@@ -621,7 +634,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.set_footer(text="Season 1 Battlepass: Catch Pokemon to earn XP and unlock packs!")
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # Cleanup on shutdown

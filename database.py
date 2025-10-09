@@ -19,8 +19,9 @@ async def setup_database():
 
     try:
         # Create connection pool
+        print("Creating database connection pool...", flush=True)
         pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10)
-        print("Database connection pool created")
+        print("Database connection pool created", flush=True)
 
         # Create tables
         async with pool.acquire() as conn:
@@ -95,14 +96,14 @@ async def setup_database():
             ''')
 
             # Initialize Season 1 rewards if not already present
-            print("Initializing Season 1 rewards...")
+            print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
-            print("Season 1 rewards initialized")
+            print("Season 1 rewards initialized", flush=True)
 
-            print("Database tables created successfully")
+            print("Database tables created successfully", flush=True)
 
     except Exception as e:
-        print(f"Error setting up database: {e}")
+        print(f"Error setting up database: {e}", flush=True)
         import traceback
         traceback.print_exc()
         raise
