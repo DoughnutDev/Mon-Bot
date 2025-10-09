@@ -33,7 +33,7 @@ active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datet
 async def fetch_pokemon(session, pokemon_id=None):
     """Fetch a random or specific Pokemon from PokeAPI"""
     if pokemon_id is None:
-        pokemon_id = random.randint(1, 898)  # Gen 1-8 Pokemon
+        pokemon_id = random.randint(1, 151)  # Gen 1 Pokemon only
 
     url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
 
