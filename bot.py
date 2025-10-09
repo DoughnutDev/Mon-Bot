@@ -642,19 +642,27 @@ class BattleView(View):
 
             embed.set_footer(text="Select your Pokemon and click 'Ready to Battle!' when ready")
         else:
-            # Battle results
+            # Battle results - need to truncate to fit Discord limits
+            # Discord limits: description 4096 chars, field value 1024 chars
+
+            # Build description from battle log
+            description_lines = []
+            description_length = 0
+            max_desc_length = 4000  # Leave buffer
+
+            for line in self.battle_log:
+                line_length = len(line) + 1  # +1 for newline
+                if description_length + line_length > max_desc_length:
+                    description_lines.append("...(battle log truncated)")
+                    break
+                description_lines.append(line)
+                description_length += line_length
+
             embed = discord.Embed(
                 title="⚔️ Battle Results!",
-                description='\n'.join(self.battle_log[:15]),  # Show first 15 lines
+                description='\n'.join(description_lines),
                 color=discord.Color.gold() if self.winner else discord.Color.red()
             )
-
-            if len(self.battle_log) > 15:
-                embed.add_field(
-                    name="Continued...",
-                    value='\n'.join(self.battle_log[15:]),
-                    inline=False
-                )
 
         return embed
 
