@@ -290,6 +290,41 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     print(f"Setup completed for {interaction.guild.name} - Channel: #{channel.name}")
 
 
+@bot.tree.command(name='clear', description='Clear all spawn channels (Admin only)')
+@app_commands.default_permissions(administrator=True)
+async def clear_channels(interaction: discord.Interaction):
+    """Clear all spawn channels for this server"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Get current spawn channels
+        config = await db.get_guild_config(interaction.guild.id)
+
+        if not config or not config.get('spawn_channels'):
+            await interaction.followup.send("No spawn channels configured for this server!", ephemeral=True)
+            return
+
+        # Clear all spawn channels by updating to empty array
+        async with db.pool.acquire() as conn:
+            await conn.execute('''
+                UPDATE guilds
+                SET spawn_channels = ARRAY[]::BIGINT[]
+                WHERE guild_id = $1
+            ''', interaction.guild.id)
+
+        await interaction.followup.send("✅ All spawn channels have been cleared! Use `/setup` to configure new ones.", ephemeral=True)
+        print(f"Cleared spawn channels for {interaction.guild.name}")
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error clearing channels: {str(e)}", ephemeral=True)
+        print(f"Error in clear command: {e}")
+
+
 @bot.tree.command(name='spawn', description='Force spawn a Pokemon immediately (Admin only)')
 @app_commands.default_permissions(administrator=True)
 async def spawn_command(interaction: discord.Interaction):
@@ -621,6 +656,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/setup #channel",
         value="(Admin only) Configure which channel Pokemon spawn in",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/clear",
+        value="(Admin only) Clear all spawn channels",
         inline=False
     )
 
