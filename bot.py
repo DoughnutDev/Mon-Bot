@@ -14,7 +14,8 @@ load_dotenv()
 # Bot configuration
 TOKEN = os.getenv('DISCORD_TOKEN')
 SPAWN_CHANNELS = os.getenv('SPAWN_CHANNELS', '').split(',')
-SPAWN_INTERVAL = int(os.getenv('SPAWN_INTERVAL', 300))  # Default 5 minutes
+SPAWN_INTERVAL_MIN = int(os.getenv('SPAWN_INTERVAL_MIN', 180))  # Default 3 minutes
+SPAWN_INTERVAL_MAX = int(os.getenv('SPAWN_INTERVAL_MAX', 600))  # Default 10 minutes
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -165,9 +166,14 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-@tasks.loop(seconds=SPAWN_INTERVAL)
+@tasks.loop()
 async def spawn_pokemon():
-    """Periodically spawn Pokemon in designated channels"""
+    """Periodically spawn Pokemon in designated channels with random intervals"""
+    # Wait a random interval before spawning
+    wait_time = random.randint(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+    print(f"Next spawn in {wait_time} seconds ({wait_time//60} minutes)")
+    await asyncio.sleep(wait_time)
+
     if not SPAWN_CHANNELS or not SPAWN_CHANNELS[0]:
         return
 
@@ -183,6 +189,7 @@ async def spawn_pokemon():
 
         # Don't spawn if there's already an active spawn in this channel
         if str(channel.id) in active_spawns:
+            print(f"Skipping spawn - {channel.name} already has an active spawn")
             return
 
         # Fetch random Pokemon

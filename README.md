@@ -43,7 +43,8 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
    ```env
    DISCORD_TOKEN=your_actual_bot_token_here
    SPAWN_CHANNELS=123456789012345678,987654321098765432
-   SPAWN_INTERVAL=300
+   SPAWN_INTERVAL_MIN=180
+   SPAWN_INTERVAL_MAX=600
    ```
 
    **Getting Channel IDs:**
@@ -88,7 +89,8 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 - **DISCORD_TOKEN** - Your Discord bot token (required)
 - **SPAWN_CHANNELS** - Comma-separated list of channel IDs where Pokemon will spawn
-- **SPAWN_INTERVAL** - Time in seconds between spawns (default: 300 = 5 minutes)
+- **SPAWN_INTERVAL_MIN** - Minimum time in seconds between spawns (default: 180 = 3 minutes)
+- **SPAWN_INTERVAL_MAX** - Maximum time in seconds between spawns (default: 600 = 10 minutes)
 
 ## Deploying to Render.com
 
@@ -102,7 +104,8 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 6. Add environment variables in Render dashboard:
    - `DISCORD_TOKEN`
    - `SPAWN_CHANNELS`
-   - `SPAWN_INTERVAL`
+   - `SPAWN_INTERVAL_MIN`
+   - `SPAWN_INTERVAL_MAX`
 7. Deploy!
 
 ## File Storage
