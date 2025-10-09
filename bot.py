@@ -200,6 +200,9 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
     # Add spawn channel to database
     await db.set_spawn_channel(interaction.guild.id, channel.id)
 
@@ -215,7 +218,7 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
         inline=False
     )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
     print(f"Setup completed for {interaction.guild.name} - Channel: #{channel.name}")
 
 
@@ -227,6 +230,9 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
     target = member or interaction.user
     user_id = target.id
     guild_id = interaction.guild.id
@@ -235,7 +241,7 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
     stats = await db.get_user_stats(user_id, guild_id)
 
     if stats['total'] == 0:
-        await interaction.response.send_message(f"{target.display_name} hasn't caught any Pokemon yet!")
+        await interaction.followup.send(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
     # Get recent catches
@@ -253,7 +259,7 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
 
     embed.add_field(name="Recent Catches", value=recent_str or "None", inline=False)
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name='count', description='See how many of each Pokemon you\'ve caught')
@@ -263,6 +269,9 @@ async def count(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
     user_id = interaction.user.id
     guild_id = interaction.guild.id
 
@@ -270,7 +279,7 @@ async def count(interaction: discord.Interaction):
     counts = await db.get_user_catch_counts(user_id, guild_id)
 
     if not counts:
-        await interaction.response.send_message("You haven't caught any Pokemon yet!")
+        await interaction.followup.send("You haven't caught any Pokemon yet!")
         return
 
     # Create embed
@@ -287,7 +296,7 @@ async def count(interaction: discord.Interaction):
     if len(sorted_counts) > 15:
         embed.set_footer(text=f"... and {len(sorted_counts) - 15} more")
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
