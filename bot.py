@@ -133,8 +133,11 @@ async def on_ready():
 
     # Sync slash commands
     try:
+        # Clear existing commands first to ensure fresh sync
+        bot.tree.clear_commands(guild=None)
         synced = await bot.tree.sync()
         print(f'Synced {len(synced)} slash command(s)')
+        print(f'Commands: {[cmd.name for cmd in synced]}')
     except Exception as e:
         print(f'Failed to sync commands: {e}')
 

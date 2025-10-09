@@ -95,12 +95,16 @@ async def setup_database():
             ''')
 
             # Initialize Season 1 rewards if not already present
+            print("Initializing Season 1 rewards...")
             await _initialize_season1_rewards(conn)
+            print("Season 1 rewards initialized")
 
             print("Database tables created successfully")
 
     except Exception as e:
         print(f"Error setting up database: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
