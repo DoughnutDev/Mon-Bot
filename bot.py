@@ -27,7 +27,7 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variables
-active_spawns = {}  # {channel_id: {pokemon_data, spawn_time}}
+active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datetime}}
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -58,7 +58,7 @@ async def fetch_pokemon(session, pokemon_id=None):
 def create_spawn_embed(pokemon):
     """Create an embed for a spawned Pokemon"""
     embed = discord.Embed(
-        title="A wild Pokemon appeared!",
+        title=f"A wild {pokemon['name']} appeared!",
         description=f"Type `ball` to catch it!",
         color=discord.Color.green()
     )
@@ -71,13 +71,21 @@ def create_spawn_embed(pokemon):
     return embed
 
 
-def create_catch_embed(pokemon, user):
+def create_catch_embed(pokemon, user, time_taken):
     """Create an embed for a successful catch"""
     types_str = ', '.join(pokemon['types']).title()
 
+    # Format time - show minutes if over 60 seconds, otherwise just seconds
+    if time_taken >= 60:
+        minutes = int(time_taken // 60)
+        seconds = int(time_taken % 60)
+        time_str = f"{minutes}m {seconds}s" if seconds > 0 else f"{minutes}m"
+    else:
+        time_str = f"{int(time_taken)}s"
+
     embed = discord.Embed(
         title=f"{user.display_name} caught {pokemon['name']}!",
-        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}",
+        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n**Caught in:** {time_str}",
         color=discord.Color.gold()
     )
 
@@ -121,7 +129,14 @@ async def on_message(message):
         channel_id = str(message.channel.id)
 
         if channel_id in active_spawns:
-            pokemon = active_spawns[channel_id]
+            spawn_data = active_spawns[channel_id]
+            pokemon = spawn_data['pokemon']
+            spawn_time = spawn_data['spawn_time']
+
+            # Calculate time taken to catch
+            catch_time = datetime.now()
+            time_taken = (catch_time - spawn_time).total_seconds()
+
             user_id = message.author.id
             guild_id = message.guild.id if message.guild else 0
 
@@ -134,8 +149,8 @@ async def on_message(message):
                 pokemon_types=pokemon['types']
             )
 
-            # Send catch confirmation
-            embed = create_catch_embed(pokemon, message.author)
+            # Send catch confirmation with time
+            embed = create_catch_embed(pokemon, message.author, time_taken)
             await message.channel.send(embed=embed)
 
             # Remove active spawn
@@ -178,8 +193,11 @@ async def spawn_pokemon():
                 pokemon = await fetch_pokemon(session)
 
             if pokemon:
-                # Store active spawn
-                active_spawns[str(channel.id)] = pokemon
+                # Store active spawn with timestamp
+                active_spawns[str(channel.id)] = {
+                    'pokemon': pokemon,
+                    'spawn_time': datetime.now()
+                }
 
                 # Send spawn message
                 embed = create_spawn_embed(pokemon)
