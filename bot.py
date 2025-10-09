@@ -56,6 +56,47 @@ async def fetch_pokemon(session, pokemon_id=None):
     return None
 
 
+async def fetch_pokemon_species(session, pokemon_identifier):
+    """Fetch Pokemon species data including Pokedex entries"""
+    # pokemon_identifier can be ID or name
+    url = f'https://pokeapi.co/api/v2/pokemon-species/{pokemon_identifier}'
+
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                species_data = await response.json()
+
+                # Get English flavor text (Pokedex entries)
+                flavor_texts = [
+                    entry['flavor_text'].replace('\n', ' ').replace('\f', ' ')
+                    for entry in species_data['flavor_text_entries']
+                    if entry['language']['name'] == 'en'
+                ]
+
+                # Get Pokemon basic data
+                pokemon_url = species_data['varieties'][0]['pokemon']['url']
+                async with session.get(pokemon_url) as poke_response:
+                    if poke_response.status == 200:
+                        pokemon_data = await poke_response.json()
+
+                        return {
+                            'id': species_data['id'],
+                            'name': species_data['name'].capitalize(),
+                            'sprite': pokemon_data['sprites']['front_default'],
+                            'types': [t['type']['name'].capitalize() for t in pokemon_data['types']],
+                            'height': pokemon_data['height'] / 10,  # Convert to meters
+                            'weight': pokemon_data['weight'] / 10,  # Convert to kg
+                            'flavor_texts': flavor_texts,
+                            'genus': next((g['genus'] for g in species_data['genera'] if g['language']['name'] == 'en'), 'Unknown'),
+                            'habitat': species_data.get('habitat', {}).get('name', 'Unknown').capitalize() if species_data.get('habitat') else 'Unknown',
+                            'generation': species_data['generation']['name'].replace('generation-', 'Gen ').upper()
+                        }
+    except Exception as e:
+        print(f"Error fetching Pokemon species: {e}")
+
+    return None
+
+
 def create_spawn_embed(pokemon):
     """Create an embed for a spawned Pokemon"""
     embed = discord.Embed(
@@ -730,6 +771,99 @@ async def pack(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='wiki', description='View Pokemon lore and information')
+@app_commands.describe(pokemon='Pokemon name or number (optional - random if not specified)')
+async def wiki(interaction: discord.Interaction, pokemon: str = None):
+    """Show Pokemon wiki information with Pokedex entries"""
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    try:
+        # Determine which Pokemon to fetch
+        if pokemon:
+            # User specified a Pokemon - try to parse as number or use as name
+            try:
+                pokemon_id = int(pokemon)
+                if pokemon_id < 1 or pokemon_id > 151:
+                    await interaction.followup.send(f"❌ Please specify a Gen 1 Pokemon (1-151)!")
+                    return
+                identifier = pokemon_id
+            except ValueError:
+                # It's a name
+                identifier = pokemon.lower()
+        else:
+            # Random Gen 1 Pokemon
+            identifier = random.randint(1, 151)
+
+        # Fetch Pokemon species data
+        async with aiohttp.ClientSession() as session:
+            species_data = await fetch_pokemon_species(session, identifier)
+
+        if not species_data:
+            await interaction.followup.send(f"❌ Could not find Pokemon: {pokemon}. Make sure it's a Gen 1 Pokemon!")
+            return
+
+        # Create embed
+        types_str = ' / '.join(species_data['types'])
+
+        embed = discord.Embed(
+            title=f"#{species_data['id']:03d} {species_data['name']}",
+            description=f"*{species_data['genus']}*",
+            color=discord.Color.blue()
+        )
+
+        if species_data['sprite']:
+            embed.set_thumbnail(url=species_data['sprite'])
+
+        # Add stats
+        embed.add_field(
+            name="Type",
+            value=types_str,
+            inline=True
+        )
+
+        embed.add_field(
+            name="Height",
+            value=f"{species_data['height']}m",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Weight",
+            value=f"{species_data['weight']}kg",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Habitat",
+            value=species_data['habitat'],
+            inline=True
+        )
+
+        embed.add_field(
+            name="Generation",
+            value=species_data['generation'],
+            inline=True
+        )
+
+        # Add random Pokedex entry
+        if species_data['flavor_texts']:
+            random_entry = random.choice(species_data['flavor_texts'])
+            embed.add_field(
+                name="📖 Pokedex Entry",
+                value=random_entry,
+                inline=False
+            )
+
+        embed.set_footer(text="Data from PokeAPI • Use /wiki [pokemon] to search specific Pokemon")
+
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error fetching Pokemon data: {str(e)}")
+        print(f"Error in wiki command: {e}")
+
+
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
@@ -757,6 +891,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/pack",
         value="Open a Pokemon pack (10 random Pokemon)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/wiki [pokemon]",
+        value="View Pokemon lore and Pokedex entries (random if no pokemon specified)",
         inline=False
     )
 
