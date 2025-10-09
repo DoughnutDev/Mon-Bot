@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 import aiohttp
 import asyncio
@@ -22,7 +23,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variables
 active_spawns = {}  # {channel_id: {pokemon_data, spawn_time}}
@@ -113,6 +114,13 @@ async def on_ready():
 
     # Load user data
     load_user_data()
+
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f'Synced {len(synced)} slash command(s)')
+    except Exception as e:
+        print(f'Failed to sync commands: {e}')
 
     # Start spawn loop
     if SPAWN_CHANNELS and SPAWN_CHANNELS[0]:
@@ -210,14 +218,15 @@ async def spawn_pokemon():
         print(f"Error spawning Pokemon: {e}")
 
 
-@bot.command(name='pokedex')
-async def pokedex(ctx, member: discord.Member = None):
+@bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
+@app_commands.describe(member='The user whose Pokedex you want to view (optional)')
+async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
     """View your or another user's caught Pokemon"""
-    target = member or ctx.author
+    target = member or interaction.user
     user_id = str(target.id)
 
     if user_id not in user_catches or not user_catches[user_id]['pokemon']:
-        await ctx.send(f"{target.display_name} hasn't caught any Pokemon yet!")
+        await interaction.response.send_message(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
     pokemon_list = user_catches[user_id]['pokemon']
@@ -238,16 +247,16 @@ async def pokedex(ctx, member: discord.Member = None):
 
     embed.add_field(name="Recent Catches", value=recent_str or "None", inline=False)
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.command(name='count')
-async def count(ctx):
+@bot.tree.command(name='count', description='See how many of each Pokemon you\'ve caught')
+async def count(interaction: discord.Interaction):
     """Show how many of each Pokemon you've caught"""
-    user_id = str(ctx.author.id)
+    user_id = str(interaction.user.id)
 
     if user_id not in user_catches or not user_catches[user_id]['pokemon']:
-        await ctx.send("You haven't caught any Pokemon yet!")
+        await interaction.response.send_message("You haven't caught any Pokemon yet!")
         return
 
     pokemon_list = user_catches[user_id]['pokemon']
@@ -263,7 +272,7 @@ async def count(ctx):
 
     # Create embed
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Pokemon Collection",
+        title=f"{interaction.user.display_name}'s Pokemon Collection",
         color=discord.Color.purple()
     )
 
@@ -274,11 +283,11 @@ async def count(ctx):
     if len(sorted_counts) > 15:
         embed.set_footer(text=f"... and {len(sorted_counts) - 15} more")
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
-@bot.command(name='help')
-async def help_command(ctx):
+@bot.tree.command(name='help', description='Show bot commands and how to use them')
+async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
     embed = discord.Embed(
         title="Mon Bot Commands",
@@ -293,18 +302,18 @@ async def help_command(ctx):
     )
 
     embed.add_field(
-        name="!pokedex [@user]",
+        name="/pokedex [@user]",
         value="View your Pokedex (or another user's)",
         inline=False
     )
 
     embed.add_field(
-        name="!count",
+        name="/count",
         value="See how many of each Pokemon you've caught",
         inline=False
     )
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 # Run the bot

@@ -78,10 +78,10 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 ## Commands
 
-- **`ball`** - Catch a spawned Pokemon (no prefix needed)
-- **`!pokedex [@user]`** - View your Pokedex or another user's
-- **`!count`** - See how many of each Pokemon you've caught
-- **`!help`** - Display bot commands
+- **`ball`** - Catch a spawned Pokemon (type in chat, no slash needed)
+- **`/pokedex [@user]`** - View your Pokedex or another user's
+- **`/count`** - See how many of each Pokemon you've caught
+- **`/help`** - Display bot commands
 
 ## Configuration
 
