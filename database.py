@@ -110,17 +110,17 @@ async def set_spawn_channel(guild_id: int, channel_id: int):
             await conn.execute('''
                 UPDATE guilds
                 SET spawn_channels = array_append(
-                    COALESCE(spawn_channels, ARRAY[]::BIGINT[]), $2
+                    COALESCE(spawn_channels, ARRAY[]::BIGINT[]), $2::BIGINT
                 ),
                 updated_at = NOW()
                 WHERE guild_id = $1
-                AND NOT ($2 = ANY(COALESCE(spawn_channels, ARRAY[]::BIGINT[])))
+                AND NOT ($2::BIGINT = ANY(COALESCE(spawn_channels, ARRAY[]::BIGINT[])))
             ''', guild_id, channel_id)
         else:
             # Create new guild entry
             await conn.execute('''
                 INSERT INTO guilds (guild_id, spawn_channels)
-                VALUES ($1, ARRAY[$2])
+                VALUES ($1, ARRAY[$2]::BIGINT[])
             ''', guild_id, channel_id)
 
 
@@ -132,7 +132,7 @@ async def remove_spawn_channel(guild_id: int, channel_id: int):
     async with pool.acquire() as conn:
         await conn.execute('''
             UPDATE guilds
-            SET spawn_channels = array_remove(spawn_channels, $2),
+            SET spawn_channels = array_remove(spawn_channels, $2::BIGINT),
             updated_at = NOW()
             WHERE guild_id = $1
         ''', guild_id, channel_id)
