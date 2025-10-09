@@ -11,6 +11,8 @@ from datetime import datetime
 
 # Import database functions
 import database as db
+# Import Pokemon stats
+import pokemon_stats as pkmn
 
 # Load environment variables
 load_dotenv()
@@ -423,6 +425,336 @@ async def spawn_command(interaction: discord.Interaction):
             ephemeral=True
         )
         print(f"Error in spawn command: {e}")
+
+
+# Interactive Battle View
+class BattleView(View):
+    def __init__(self, user1: discord.Member, user2: discord.Member, guild_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user1 = user1
+        self.user2 = user2
+        self.guild_id = guild_id
+        self.user1_pokemon = []
+        self.user2_pokemon = []
+        self.user1_choice = None  # {catch_id, pokemon_name, pokemon_id, types}
+        self.user2_choice = None
+        self.user1_ready = False
+        self.user2_ready = False
+        self.battle_started = False
+        self.battle_log = []
+        self.winner = None
+
+    async def load_pokemon(self):
+        """Load Pokemon for both users"""
+        self.user1_pokemon = await db.get_user_pokemon_for_trade(self.user1.id, self.guild_id)
+        self.user2_pokemon = await db.get_user_pokemon_for_trade(self.user2.id, self.guild_id)
+
+    def calculate_stats(self, pokemon_id: int, level: int):
+        """Calculate battle stats based on base stats and level"""
+        base = pkmn.get_pokemon_stats(pokemon_id)
+        return {
+            'hp': base['hp'] + (level * 2),
+            'attack': base['attack'] + int(level * 1.5),
+            'defense': base['defense'] + level,
+            'speed': base['speed']
+        }
+
+    def calculate_damage(self, attacker_stats: dict, defender_stats: dict, attacker_types: list, defender_types: list) -> int:
+        """Calculate damage dealt"""
+        # Base damage
+        base_damage = max(1, (attacker_stats['attack'] - defender_stats['defense']) // 2)
+
+        # Type effectiveness
+        type_mult = pkmn.get_type_effectiveness(attacker_types, defender_types)
+
+        # Random variation (90-110%)
+        random_mult = random.uniform(0.9, 1.1)
+
+        # Critical hit (10% chance for 1.5x)
+        crit_mult = 1.5 if random.random() < 0.1 else 1.0
+
+        damage = int(base_damage * type_mult * random_mult * crit_mult)
+        return max(1, damage)
+
+    async def execute_battle(self):
+        """Execute the battle automatically"""
+        self.battle_log = []
+        self.battle_started = True
+
+        # Get Pokemon levels
+        p1_level = await db.get_pokemon_level(self.user1_choice['id'])
+        p2_level = await db.get_pokemon_level(self.user2_choice['id'])
+
+        # Calculate stats
+        p1_stats = self.calculate_stats(self.user1_choice['pokemon_id'], p1_level)
+        p2_stats = self.calculate_stats(self.user2_choice['pokemon_id'], p2_level)
+
+        # Set initial HP
+        p1_hp = p1_stats['hp']
+        p2_hp = p2_stats['hp']
+
+        # Get types from database
+        p1_types = self.user1_choice.get('types', ['normal'])
+        p2_types = self.user2_choice.get('types', ['normal'])
+
+        # Battle log
+        self.battle_log.append(f"⚔️ **Battle Start!**")
+        self.battle_log.append(f"{self.user1.display_name}'s **{self.user1_choice['pokemon_name']}** (Lv.{p1_level}) HP: {p1_hp}")
+        self.battle_log.append(f"{self.user2.display_name}'s **{self.user2_choice['pokemon_name']}** (Lv.{p2_level}) HP: {p2_hp}")
+        self.battle_log.append("")
+
+        turn = 0
+        max_turns = 20  # Prevent infinite battles
+
+        # Battle loop
+        while p1_hp > 0 and p2_hp > 0 and turn < max_turns:
+            turn += 1
+            self.battle_log.append(f"**Turn {turn}:**")
+
+            # Determine who goes first (based on speed)
+            if p1_stats['speed'] >= p2_stats['speed']:
+                first, second = 1, 2
+            else:
+                first, second = 2, 1
+
+            # First attacker
+            if first == 1 and p1_hp > 0:
+                damage = self.calculate_damage(p1_stats, p2_stats, p1_types, p2_types)
+                p2_hp -= damage
+                type_eff = pkmn.get_type_effectiveness(p1_types, p2_types)
+
+                effect_text = ""
+                if type_eff == 0:
+                    effect_text = "It has no effect..."
+                elif type_eff > 1:
+                    effect_text = "It's super effective!"
+                elif type_eff < 1:
+                    effect_text = "It's not very effective..."
+
+                self.battle_log.append(f"⚡ **{self.user1_choice['pokemon_name']}** attacks! {effect_text}")
+                self.battle_log.append(f"💥 Dealt {damage} damage! **{self.user2_choice['pokemon_name']}** HP: {max(0, p2_hp)}/{p2_stats['hp']}")
+
+                if p2_hp <= 0:
+                    break
+
+            # Second attacker
+            if second == 2 and p2_hp > 0:
+                damage = self.calculate_damage(p2_stats, p1_stats, p2_types, p1_types)
+                p1_hp -= damage
+                type_eff = pkmn.get_type_effectiveness(p2_types, p1_types)
+
+                effect_text = ""
+                if type_eff == 0:
+                    effect_text = "It has no effect..."
+                elif type_eff > 1:
+                    effect_text = "It's super effective!"
+                elif type_eff < 1:
+                    effect_text = "It's not very effective..."
+
+                self.battle_log.append(f"⚡ **{self.user2_choice['pokemon_name']}** attacks! {effect_text}")
+                self.battle_log.append(f"💥 Dealt {damage} damage! **{self.user1_choice['pokemon_name']}** HP: {max(0, p1_hp)}/{p1_stats['hp']}")
+
+                if p1_hp <= 0:
+                    break
+
+            self.battle_log.append("")
+
+        # Determine winner
+        if p1_hp > p2_hp:
+            self.winner = 1
+            self.battle_log.append(f"🏆 **{self.user1.display_name}'s {self.user1_choice['pokemon_name']} wins!**")
+            winner_id, loser_id = self.user1.id, self.user2.id
+            winner_pokemon_id, loser_pokemon_id = self.user1_choice['id'], self.user2_choice['id']
+            winner_name, loser_name = self.user1_choice['pokemon_name'], self.user2_choice['pokemon_name']
+        else:
+            self.winner = 2
+            self.battle_log.append(f"🏆 **{self.user2.display_name}'s {self.user2_choice['pokemon_name']} wins!**")
+            winner_id, loser_id = self.user2.id, self.user1.id
+            winner_pokemon_id, loser_pokemon_id = self.user2_choice['id'], self.user1_choice['id']
+            winner_name, loser_name = self.user2_choice['pokemon_name'], self.user1_choice['pokemon_name']
+
+        # Record battle
+        await db.record_battle(
+            self.guild_id, winner_id, loser_id,
+            winner_pokemon_id, loser_pokemon_id,
+            winner_name, loser_name, turn
+        )
+
+        # Award XP
+        await db.add_xp(winner_id, self.guild_id, 50)  # Winner gets 50 XP
+        await db.add_xp(loser_id, self.guild_id, 10)   # Loser gets 10 XP
+
+    def create_embed(self):
+        """Create the battle embed"""
+        if not self.battle_started:
+            # Pre-battle selection
+            embed = discord.Embed(
+                title="⚔️ Pokemon Battle!",
+                description=f"**{self.user1.display_name}** vs **{self.user2.display_name}**",
+                color=discord.Color.red()
+            )
+
+            # User 1's choice
+            user1_text = "Not selected"
+            if self.user1_choice:
+                user1_text = f"#{self.user1_choice['pokemon_id']:03d} {self.user1_choice['pokemon_name']}"
+                if self.user1_ready:
+                    user1_text += " ✅"
+
+            embed.add_field(
+                name=f"{self.user1.display_name}'s Pokemon",
+                value=user1_text,
+                inline=True
+            )
+
+            # User 2's choice
+            user2_text = "Not selected"
+            if self.user2_choice:
+                user2_text = f"#{self.user2_choice['pokemon_id']:03d} {self.user2_choice['pokemon_name']}"
+                if self.user2_ready:
+                    user2_text += " ✅"
+
+            embed.add_field(
+                name=f"{self.user2.display_name}'s Pokemon",
+                value=user2_text,
+                inline=True
+            )
+
+            # Status
+            status_parts = []
+            if self.user1_ready:
+                status_parts.append(f"✅ {self.user1.display_name} is ready!")
+            if self.user2_ready:
+                status_parts.append(f"✅ {self.user2.display_name} is ready!")
+
+            if status_parts:
+                embed.add_field(
+                    name="Status",
+                    value='\n'.join(status_parts),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Status",
+                    value="⏳ Both trainers must select a Pokemon and ready up!",
+                    inline=False
+                )
+
+            embed.set_footer(text="Select your Pokemon and click 'Ready to Battle!' when ready")
+        else:
+            # Battle results
+            embed = discord.Embed(
+                title="⚔️ Battle Results!",
+                description='\n'.join(self.battle_log[:15]),  # Show first 15 lines
+                color=discord.Color.gold() if self.winner else discord.Color.red()
+            )
+
+            if len(self.battle_log) > 15:
+                embed.add_field(
+                    name="Continued...",
+                    value='\n'.join(self.battle_log[15:]),
+                    inline=False
+                )
+
+        return embed
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the display"""
+        embed = self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.select(placeholder=f"Select your Pokemon...", custom_id="battle_user1_select", min_values=1, max_values=1)
+    async def user1_select(self, interaction: discord.Interaction, select: Select):
+        """User 1 selects their Pokemon"""
+        if interaction.user.id != self.user1.id:
+            await interaction.response.send_message("This is not your battle!", ephemeral=True)
+            return
+
+        catch_id = int(select.values[0])
+        selected = next((p for p in self.user1_pokemon if p['id'] == catch_id), None)
+
+        if selected:
+            # Fetch Pokemon details including types
+            async with aiohttp.ClientSession() as session:
+                pokemon_data = await fetch_pokemon(session, selected['pokemon_id'])
+                if pokemon_data:
+                    selected['types'] = pokemon_data['types']
+
+            self.user1_choice = selected
+            self.user1_ready = False
+            await self.update_display(interaction)
+
+    @discord.ui.select(placeholder=f"Select your Pokemon...", custom_id="battle_user2_select", min_values=1, max_values=1)
+    async def user2_select(self, interaction: discord.Interaction, select: Select):
+        """User 2 selects their Pokemon"""
+        if interaction.user.id != self.user2.id:
+            await interaction.response.send_message("This is not your battle!", ephemeral=True)
+            return
+
+        catch_id = int(select.values[0])
+        selected = next((p for p in self.user2_pokemon if p['id'] == catch_id), None)
+
+        if selected:
+            # Fetch Pokemon details including types
+            async with aiohttp.ClientSession() as session:
+                pokemon_data = await fetch_pokemon(session, selected['pokemon_id'])
+                if pokemon_data:
+                    selected['types'] = pokemon_data['types']
+
+            self.user2_choice = selected
+            self.user2_ready = False
+            await self.update_display(interaction)
+
+    @discord.ui.button(label="Ready to Battle!", style=discord.ButtonStyle.green, custom_id="battle_ready")
+    async def ready_button(self, interaction: discord.Interaction, button: Button):
+        """Mark ready for battle"""
+        if interaction.user.id not in [self.user1.id, self.user2.id]:
+            await interaction.response.send_message("This is not your battle!", ephemeral=True)
+            return
+
+        # Check if user has selected a Pokemon
+        if interaction.user.id == self.user1.id:
+            if not self.user1_choice:
+                await interaction.response.send_message("Please select a Pokemon first!", ephemeral=True)
+                return
+            self.user1_ready = True
+        else:
+            if not self.user2_choice:
+                await interaction.response.send_message("Please select a Pokemon first!", ephemeral=True)
+                return
+            self.user2_ready = True
+
+        # Check if both are ready
+        if self.user1_ready and self.user2_ready:
+            # Execute battle
+            await self.execute_battle()
+
+            # Disable all controls
+            for item in self.children:
+                item.disabled = True
+
+        await self.update_display(interaction)
+
+    @discord.ui.button(label="Forfeit", style=discord.ButtonStyle.red, custom_id="battle_forfeit")
+    async def forfeit_button(self, interaction: discord.Interaction, button: Button):
+        """Forfeit the battle"""
+        if interaction.user.id not in [self.user1.id, self.user2.id]:
+            await interaction.response.send_message("This is not your battle!", ephemeral=True)
+            return
+
+        self.battle_started = True
+        self.battle_log = [f"❌ **{interaction.user.display_name} forfeited the battle!**"]
+
+        if interaction.user.id == self.user1.id:
+            self.winner = 2
+        else:
+            self.winner = 1
+
+        # Disable all controls
+        for item in self.children:
+            item.disabled = True
+
+        await self.update_display(interaction)
 
 
 # Interactive Trade View
@@ -1081,6 +1413,63 @@ async def pack(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='battle', description='Battle another user with Pokemon!')
+@app_commands.describe(user='The user you want to battle')
+async def battle(interaction: discord.Interaction, user: discord.Member):
+    """Initiate a Pokemon battle with another user"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Can't battle yourself
+    if user.id == interaction.user.id:
+        await interaction.response.send_message("❌ You can't battle yourself!", ephemeral=True)
+        return
+
+    # Can't battle bots
+    if user.bot:
+        await interaction.response.send_message("❌ You can't battle bots!", ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    # Create battle view
+    view = BattleView(interaction.user, user, interaction.guild.id)
+    await view.load_pokemon()
+
+    # Check if both users have Pokemon
+    if not view.user1_pokemon:
+        await interaction.followup.send(f"❌ {interaction.user.display_name} doesn't have any Pokemon to battle with!")
+        return
+
+    if not view.user2_pokemon:
+        await interaction.followup.send(f"❌ {user.display_name} doesn't have any Pokemon to battle with!")
+        return
+
+    # Populate dropdown options (max 25 options per dropdown)
+    user1_options = []
+    for pokemon in view.user1_pokemon[:25]:
+        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user1_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+
+    user2_options = []
+    for pokemon in view.user2_pokemon[:25]:
+        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user2_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+
+    # Set dropdown options
+    view.user1_select.options = user1_options
+    view.user2_select.options = user2_options
+
+    # Update placeholders with usernames
+    view.user1_select.placeholder = f"{interaction.user.display_name}: Choose your Pokemon..."
+    view.user2_select.placeholder = f"{user.display_name}: Choose your Pokemon..."
+
+    embed = view.create_embed()
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='trade', description='Trade Pokemon with another user')
 @app_commands.describe(user='The user you want to trade with')
 async def trade(interaction: discord.Interaction, user: discord.Member):
@@ -1294,6 +1683,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/trade @user",
         value="Trade Pokemon with another user",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/battle @user",
+        value="Battle another user with your Pokemon!",
         inline=False
     )
 

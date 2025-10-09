@@ -44,3 +44,6 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+# Future features notes
+FUTURE_FEATURES.md

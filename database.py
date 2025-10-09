@@ -95,6 +95,39 @@ async def setup_database():
                 )
             ''')
 
+            # Pokemon stats table - for battle system
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS pokemon_stats (
+                    catch_id INTEGER PRIMARY KEY,
+                    level INTEGER DEFAULT 1,
+                    experience INTEGER DEFAULT 0,
+                    battles_won INTEGER DEFAULT 0,
+                    battles_lost INTEGER DEFAULT 0
+                )
+            ''')
+
+            # Battle history table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS battle_history (
+                    id SERIAL PRIMARY KEY,
+                    guild_id BIGINT NOT NULL,
+                    winner_id BIGINT NOT NULL,
+                    loser_id BIGINT NOT NULL,
+                    winner_pokemon_id INTEGER NOT NULL,
+                    loser_pokemon_id INTEGER NOT NULL,
+                    winner_pokemon_name TEXT NOT NULL,
+                    loser_pokemon_name TEXT NOT NULL,
+                    turns_taken INTEGER NOT NULL,
+                    battle_date TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+
+            # Create index for battle history
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_battle_history_users
+                ON battle_history(winner_id, loser_id, guild_id)
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
@@ -504,6 +537,75 @@ async def execute_trade(catch_id1: int, catch_id2: int, user_id1: int, user_id2:
             ''', catch_id2, user_id1)
 
             return True
+
+
+# Battle system functions
+
+async def get_pokemon_level(catch_id: int) -> int:
+    """Get the level of a specific caught Pokemon"""
+    if not pool:
+        return 1
+
+    async with pool.acquire() as conn:
+        level = await conn.fetchval('''
+            SELECT level FROM pokemon_stats WHERE catch_id = $1
+        ''', catch_id)
+
+        return level if level else 1
+
+
+async def record_battle(guild_id: int, winner_id: int, loser_id: int,
+                       winner_pokemon_id: int, loser_pokemon_id: int,
+                       winner_pokemon_name: str, loser_pokemon_name: str,
+                       turns_taken: int):
+    """Record a battle result"""
+    if not pool:
+        return
+
+    async with pool.acquire() as conn:
+        # Record battle history
+        await conn.execute('''
+            INSERT INTO battle_history
+            (guild_id, winner_id, loser_id, winner_pokemon_id, loser_pokemon_id,
+             winner_pokemon_name, loser_pokemon_name, turns_taken)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ''', guild_id, winner_id, loser_id, winner_pokemon_id, loser_pokemon_id,
+             winner_pokemon_name, loser_pokemon_name, turns_taken)
+
+        # Update winner's Pokemon stats
+        await conn.execute('''
+            INSERT INTO pokemon_stats (catch_id, battles_won)
+            VALUES ($1, 1)
+            ON CONFLICT (catch_id)
+            DO UPDATE SET battles_won = pokemon_stats.battles_won + 1
+        ''', winner_pokemon_id)
+
+        # Update loser's Pokemon stats
+        await conn.execute('''
+            INSERT INTO pokemon_stats (catch_id, battles_lost)
+            VALUES ($1, 1)
+            ON CONFLICT (catch_id)
+            DO UPDATE SET battles_lost = pokemon_stats.battles_lost + 1
+        ''', loser_pokemon_id)
+
+
+async def get_battle_stats(user_id: int, guild_id: int) -> Dict:
+    """Get battle statistics for a user"""
+    if not pool:
+        return {'wins': 0, 'losses': 0}
+
+    async with pool.acquire() as conn:
+        wins = await conn.fetchval('''
+            SELECT COUNT(*) FROM battle_history
+            WHERE winner_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        losses = await conn.fetchval('''
+            SELECT COUNT(*) FROM battle_history
+            WHERE loser_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        return {'wins': wins or 0, 'losses': losses or 0}
 
 
 # Battlepass functions
