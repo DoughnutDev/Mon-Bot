@@ -310,6 +310,128 @@ async def get_legendary_pokemon(user_id: int, guild_id: int) -> List[Dict]:
         return [dict(row) for row in rows]
 
 
+# Leaderboard functions
+
+async def get_leaderboard_most_caught(guild_id: int, limit: int = 10) -> List[Dict]:
+    """Get leaderboard by total Pokemon caught"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                user_id,
+                COUNT(*) as total_caught
+            FROM catches
+            WHERE guild_id = $1
+            GROUP BY user_id
+            ORDER BY total_caught DESC
+            LIMIT $2
+        ''', guild_id, limit)
+
+        return [dict(row) for row in rows]
+
+
+async def get_leaderboard_unique(guild_id: int, limit: int = 10) -> List[Dict]:
+    """Get leaderboard by unique Pokemon caught"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                user_id,
+                COUNT(DISTINCT pokemon_name) as unique_pokemon
+            FROM catches
+            WHERE guild_id = $1
+            GROUP BY user_id
+            ORDER BY unique_pokemon DESC
+            LIMIT $2
+        ''', guild_id, limit)
+
+        return [dict(row) for row in rows]
+
+
+async def get_leaderboard_legendaries(guild_id: int, limit: int = 10) -> List[Dict]:
+    """Get leaderboard by legendary Pokemon caught"""
+    if not pool:
+        return []
+
+    legendary_ids = [144, 145, 146, 150, 151]
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                user_id,
+                COUNT(*) as legendary_count
+            FROM catches
+            WHERE guild_id = $1 AND pokemon_id = ANY($2)
+            GROUP BY user_id
+            ORDER BY legendary_count DESC
+            LIMIT $3
+        ''', guild_id, legendary_ids, limit)
+
+        return [dict(row) for row in rows]
+
+
+async def get_rarest_pokemon_in_server(guild_id: int) -> Optional[Dict]:
+    """Get the rarest Pokemon in the server (least caught overall)"""
+    if not pool:
+        return None
+
+    async with pool.acquire() as conn:
+        # Find Pokemon with the lowest catch count across all users
+        row = await conn.fetchrow('''
+            WITH pokemon_counts AS (
+                SELECT
+                    pokemon_name,
+                    pokemon_id,
+                    COUNT(*) as total_caught,
+                    COUNT(DISTINCT user_id) as unique_owners
+                FROM catches
+                WHERE guild_id = $1
+                GROUP BY pokemon_name, pokemon_id
+            )
+            SELECT * FROM pokemon_counts
+            ORDER BY total_caught ASC, unique_owners ASC
+            LIMIT 1
+        ''', guild_id)
+
+        return dict(row) if row else None
+
+
+async def get_user_with_rarest(guild_id: int) -> Optional[Dict]:
+    """Get user who owns the rarest Pokemon in the server"""
+    if not pool:
+        return None
+
+    rarest = await get_rarest_pokemon_in_server(guild_id)
+    if not rarest:
+        return None
+
+    async with pool.acquire() as conn:
+        # Find first user who caught this rarest Pokemon
+        row = await conn.fetchrow('''
+            SELECT user_id, caught_at
+            FROM catches
+            WHERE guild_id = $1 AND pokemon_name = $2
+            ORDER BY caught_at ASC
+            LIMIT 1
+        ''', guild_id, rarest['pokemon_name'])
+
+        if row:
+            return {
+                'user_id': row['user_id'],
+                'pokemon_name': rarest['pokemon_name'],
+                'pokemon_id': rarest['pokemon_id'],
+                'total_caught': rarest['total_caught'],
+                'unique_owners': rarest['unique_owners'],
+                'caught_at': row['caught_at']
+            }
+
+        return None
+
+
 async def get_user_stats(user_id: int, guild_id: int) -> Dict:
     """Get catch statistics for a user"""
     if not pool:

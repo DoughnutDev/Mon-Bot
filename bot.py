@@ -425,6 +425,131 @@ async def spawn_command(interaction: discord.Interaction):
         print(f"Error in spawn command: {e}")
 
 
+# Interactive Leaderboard View
+class LeaderboardView(View):
+    def __init__(self, guild: discord.Guild):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.guild = guild
+        self.sort_by = 'most_caught'
+        self.leaderboard_data = []
+
+        # Add dropdown for sorting
+        self.sort_select = Select(
+            placeholder="Choose leaderboard type...",
+            options=[
+                discord.SelectOption(label="🏆 Most Pokemon Caught", value="most_caught", description="Total catches", default=True),
+                discord.SelectOption(label="📚 Most Unique Pokemon", value="unique", description="Unique species"),
+                discord.SelectOption(label="👑 Most Legendaries", value="legendaries", description="Legendary Pokemon"),
+            ]
+        )
+        self.sort_select.callback = self.sort_callback
+        self.add_item(self.sort_select)
+
+    async def sort_callback(self, interaction: discord.Interaction):
+        """Handle sort selection"""
+        self.sort_by = self.sort_select.values[0]
+
+        # Update dropdown to show selected option
+        for option in self.sort_select.options:
+            option.default = (option.value == self.sort_by)
+
+        await self.update_display(interaction)
+
+    async def load_leaderboard(self):
+        """Load leaderboard based on current sort"""
+        if self.sort_by == 'most_caught':
+            self.leaderboard_data = await db.get_leaderboard_most_caught(self.guild.id, limit=10)
+        elif self.sort_by == 'unique':
+            self.leaderboard_data = await db.get_leaderboard_unique(self.guild.id, limit=10)
+        elif self.sort_by == 'legendaries':
+            self.leaderboard_data = await db.get_leaderboard_legendaries(self.guild.id, limit=10)
+
+    async def create_embed(self):
+        """Create the leaderboard embed"""
+        # Get sort display name
+        sort_names = {
+            'most_caught': '🏆 Most Pokemon Caught',
+            'unique': '📚 Most Unique Pokemon',
+            'legendaries': '👑 Most Legendaries'
+        }
+        sort_display = sort_names.get(self.sort_by, 'Leaderboard')
+
+        embed = discord.Embed(
+            title=f"{self.guild.name} Leaderboard",
+            description=f"**{sort_display}**",
+            color=discord.Color.gold()
+        )
+
+        # Get rarest Pokemon showcase
+        rarest_data = await db.get_user_with_rarest(self.guild.id)
+        if rarest_data:
+            try:
+                rarest_user = await self.guild.fetch_member(rarest_data['user_id'])
+                rarest_name = rarest_user.display_name if rarest_user else f"User {rarest_data['user_id']}"
+
+                embed.add_field(
+                    name="⭐ Rarest Pokemon in Server",
+                    value=f"**{rarest_name}** owns #{rarest_data['pokemon_id']:03d} **{rarest_data['pokemon_name']}**\n"
+                          f"Only caught **{rarest_data['total_caught']}** times by **{rarest_data['unique_owners']}** trainer(s)!",
+                    inline=False
+                )
+            except:
+                pass  # Skip if we can't fetch the user
+
+        # Create ranked list
+        if self.leaderboard_data:
+            leaderboard_text = []
+            for idx, entry in enumerate(self.leaderboard_data, start=1):
+                try:
+                    user = await self.guild.fetch_member(entry['user_id'])
+                    username = user.display_name if user else f"User {entry['user_id']}"
+
+                    # Determine medal
+                    if idx == 1:
+                        medal = "🥇"
+                    elif idx == 2:
+                        medal = "🥈"
+                    elif idx == 3:
+                        medal = "🥉"
+                    else:
+                        medal = f"`#{idx:2d}`"
+
+                    # Determine value to display
+                    if self.sort_by == 'most_caught':
+                        value = f"{entry['total_caught']} caught"
+                    elif self.sort_by == 'unique':
+                        value = f"{entry['unique_pokemon']}/151 unique"
+                    elif self.sort_by == 'legendaries':
+                        value = f"{entry['legendary_count']} legendaries"
+
+                    leaderboard_text.append(f"{medal} **{username}** - {value}")
+                except:
+                    continue  # Skip users we can't fetch
+
+            if leaderboard_text:
+                embed.add_field(
+                    name=f"📊 Top {len(leaderboard_text)} Trainers",
+                    value='\n'.join(leaderboard_text),
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="📊 Leaderboard",
+                value="No data available yet. Start catching Pokemon!",
+                inline=False
+            )
+
+        embed.set_footer(text=f"Server: {self.guild.name}")
+
+        return embed
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the display with new data"""
+        await self.load_leaderboard()
+        embed = await self.create_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 # Interactive Pokedex View
 class PokedexView(View):
     def __init__(self, user_id: int, guild_id: int, username: str):
@@ -771,6 +896,24 @@ async def pack(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='leaderboard', description='View server leaderboards')
+async def leaderboard(interaction: discord.Interaction):
+    """Show server leaderboards with different categories"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    # Create interactive view
+    view = LeaderboardView(interaction.guild)
+    await view.load_leaderboard()
+    embed = await view.create_embed()
+
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='wiki', description='View Pokemon lore and information')
 @app_commands.describe(pokemon='Pokemon name or number (optional - random if not specified)')
 async def wiki(interaction: discord.Interaction, pokemon: str = None):
@@ -897,6 +1040,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/wiki [pokemon]",
         value="View Pokemon lore and Pokedex entries (random if no pokemon specified)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/leaderboard",
+        value="View server leaderboards with different categories",
         inline=False
     )
 
