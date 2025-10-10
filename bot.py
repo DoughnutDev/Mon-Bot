@@ -1332,6 +1332,7 @@ class LeaderboardView(View):
                 discord.SelectOption(label="🏆 Most Pokemon Caught", value="most_caught", description="Total catches", default=True),
                 discord.SelectOption(label="📚 Most Unique Pokemon", value="unique", description="Unique species"),
                 discord.SelectOption(label="👑 Most Legendaries", value="legendaries", description="Legendary Pokemon"),
+                discord.SelectOption(label="💰 Collection Value", value="collection_value", description="Total Pokedollar value"),
             ]
         )
         self.sort_select.callback = self.sort_callback
@@ -1355,6 +1356,8 @@ class LeaderboardView(View):
             self.leaderboard_data = await db.get_leaderboard_unique(self.guild.id, limit=10)
         elif self.sort_by == 'legendaries':
             self.leaderboard_data = await db.get_leaderboard_legendaries(self.guild.id, limit=10)
+        elif self.sort_by == 'collection_value':
+            self.leaderboard_data = await db.get_leaderboard_collection_value(self.guild.id, limit=10)
 
     async def create_embed(self):
         """Create the leaderboard embed"""
@@ -1362,7 +1365,8 @@ class LeaderboardView(View):
         sort_names = {
             'most_caught': '🏆 Most Pokemon Caught',
             'unique': '📚 Most Unique Pokemon',
-            'legendaries': '👑 Most Legendaries'
+            'legendaries': '👑 Most Legendaries',
+            'collection_value': '💰 Collection Value'
         }
         sort_display = sort_names.get(self.sort_by, 'Leaderboard')
 
@@ -1413,6 +1417,8 @@ class LeaderboardView(View):
                         value = f"{entry['unique_pokemon']}/151 unique"
                     elif self.sort_by == 'legendaries':
                         value = f"{entry['legendary_count']} legendaries"
+                    elif self.sort_by == 'collection_value':
+                        value = f"₽{entry['collection_value']:,}"
 
                     leaderboard_text.append(f"{medal} **{username}** - {value}")
                 except:

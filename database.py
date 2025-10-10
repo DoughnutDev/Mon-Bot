@@ -498,6 +498,33 @@ async def get_leaderboard_legendaries(guild_id: int, limit: int = 10) -> List[Di
         return [dict(row) for row in rows]
 
 
+async def get_leaderboard_collection_value(guild_id: int, limit: int = 10) -> List[Dict]:
+    """Get leaderboard by total collection value (based on sell prices)"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                user_id,
+                SUM(
+                    CASE
+                        WHEN pokemon_id IN (144, 145, 146, 150, 151) THEN 100
+                        WHEN pokemon_id IN (3, 6, 9, 59, 65, 68, 76, 94, 103, 112, 115, 130, 131, 142, 143) THEN 50
+                        WHEN pokemon_id IN (1, 2, 3, 4, 5, 6, 7, 8, 9) THEN 30
+                        ELSE 10
+                    END
+                ) as collection_value
+            FROM catches
+            WHERE guild_id = $1
+            GROUP BY user_id
+            ORDER BY collection_value DESC
+            LIMIT $2
+        ''', guild_id, limit)
+
+        return [dict(row) for row in rows]
+
+
 async def get_rarest_pokemon_in_server(guild_id: int) -> Optional[Dict]:
     """Get the rarest Pokemon in the server (least caught overall)"""
     if not pool:
