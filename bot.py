@@ -13,6 +13,8 @@ from datetime import datetime
 import database as db
 # Import Pokemon stats
 import pokemon_stats as pkmn
+# Import quest system
+import quest_system
 
 # Load environment variables
 load_dotenv()
@@ -297,6 +299,29 @@ async def on_message(message):
             # Add XP to battlepass (10 XP per catch)
             xp_result = await db.add_xp(user_id, guild_id, xp_amount=10)
 
+            # Update quest progress for catching Pokemon
+            quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_pokemon')
+
+            # Check if caught Pokemon is legendary (IDs 144-151)
+            legendary_ids = [144, 145, 146, 150, 151]
+            if pokemon['id'] in legendary_ids:
+                legendary_quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_legendary')
+                if legendary_quest_result and legendary_quest_result.get('completed_quests'):
+                    # Merge quest results
+                    if not quest_result:
+                        quest_result = legendary_quest_result
+                    else:
+                        quest_result['total_xp'] += legendary_quest_result['total_xp']
+                        quest_result['completed_quests'].extend(legendary_quest_result['completed_quests'])
+
+            # Award quest XP to battlepass if quests were completed
+            if quest_result and quest_result.get('total_xp', 0) > 0:
+                quest_xp_result = await db.add_xp(user_id, guild_id, xp_amount=quest_result['total_xp'])
+                # Update xp_result if quest XP caused level up
+                if quest_xp_result and quest_xp_result.get('leveled_up'):
+                    if not xp_result or not xp_result.get('leveled_up'):
+                        xp_result = quest_xp_result
+
             # Send catch confirmation with time
             embed = create_catch_embed(pokemon, message.author, time_taken)
             await message.channel.send(embed=embed)
@@ -309,6 +334,17 @@ async def on_message(message):
                     xp_result['rewards']
                 )
                 await message.channel.send(embed=level_embed)
+
+            # If quests were completed, notify user
+            if quest_result and quest_result.get('completed_quests'):
+                quest_xp = quest_result['total_xp']
+                quest_count = len(quest_result['completed_quests'])
+                quest_embed = discord.Embed(
+                    title="✅ Daily Quest Complete!",
+                    description=f"You completed {quest_count} quest(s) and earned **{quest_xp} XP**!",
+                    color=discord.Color.green()
+                )
+                await message.channel.send(embed=quest_embed)
 
             # Remove active spawn
             del active_spawns[channel_id]
@@ -764,6 +800,9 @@ class BattleView(View):
         # Award battlepass XP
         await db.add_xp(winner_id, self.guild_id, 50)
         await db.add_xp(loser_id, self.guild_id, 10)
+
+        # Update quest progress for winner (win_battles)
+        await db.update_quest_progress(winner_id, self.guild_id, 'win_battles')
 
         # Award Pokemon species XP
         winner_xp_result = await db.add_species_xp(
@@ -1235,6 +1274,9 @@ class TradeView(View):
 
             if success:
                 self.trade_completed = True
+                # Update quest progress for both users (complete_trade)
+                await db.update_quest_progress(self.user1.id, self.guild_id, 'complete_trade')
+                await db.update_quest_progress(self.user2.id, self.guild_id, 'complete_trade')
                 # Disable all buttons
                 for item in self.children:
                     item.disabled = True
@@ -1723,6 +1765,9 @@ async def pack(interaction: discord.Interaction):
         await interaction.followup.send("Error opening pack. Please try again!")
         return
 
+    # Update quest progress for opening packs
+    await db.update_quest_progress(user_id, guild_id, 'open_packs')
+
     # Create pack opening embed
     embed = discord.Embed(
         title="📦 Pack Opened!",
@@ -1971,6 +2016,92 @@ async def wiki(interaction: discord.Interaction, pokemon: str = None):
         print(f"Error in wiki command: {e}")
 
 
+@bot.tree.command(name='quests', description='View your daily quests and progress')
+async def quests(interaction: discord.Interaction):
+    """View daily quests for battlepass XP"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get or create today's daily quests
+    quests_data = await db.get_daily_quests(user_id, guild_id)
+
+    if not quests_data:
+        # Generate new quests for today
+        new_quests = quest_system.generate_daily_quests()
+        success = await db.create_daily_quests(user_id, guild_id, new_quests)
+
+        if success:
+            quests_data = await db.get_daily_quests(user_id, guild_id)
+        else:
+            await interaction.followup.send("❌ Failed to generate daily quests. Please try again!")
+            return
+
+    # Create embed
+    embed = discord.Embed(
+        title="📋 Daily Quests",
+        description=f"{interaction.user.display_name}'s quests for today",
+        color=discord.Color.blue()
+    )
+
+    total_xp_earned = 0
+    all_complete = True
+
+    # Display each quest
+    for i in range(1, 4):
+        quest_type = quests_data.get(f'quest_{i}_type')
+        target = quests_data.get(f'quest_{i}_target')
+        progress = quests_data.get(f'quest_{i}_progress', 0)
+        completed = quests_data.get(f'quest_{i}_completed', False)
+        reward = quests_data.get(f'quest_{i}_reward')
+
+        if quest_type:
+            # Get quest description
+            quest_info = None
+            for variant in quest_system.QUEST_TYPES.get(quest_type, {}).get('variants', []):
+                if variant['target'] == target and variant['reward'] == reward:
+                    quest_info = variant
+                    break
+
+            if quest_info:
+                status_emoji = "✅" if completed else "⏳"
+                progress_bar = f"{progress}/{target}"
+
+                # Build field value
+                field_value = f"{quest_info['description']}\n"
+                field_value += f"**Progress:** {progress_bar}\n"
+                field_value += f"**Reward:** {reward} XP"
+
+                embed.add_field(
+                    name=f"{status_emoji} Quest {i}",
+                    value=field_value,
+                    inline=False
+                )
+
+                if completed:
+                    total_xp_earned += reward
+                else:
+                    all_complete = False
+
+    # Add summary
+    if all_complete:
+        embed.add_field(
+            name="🎉 All Quests Complete!",
+            value=f"You've earned **{total_xp_earned} XP** today!\nCome back tomorrow for new quests.",
+            inline=False
+        )
+    else:
+        embed.set_footer(text="Complete quests to earn battlepass XP! Quests reset daily.")
+
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
@@ -1992,6 +2123,12 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="/battlepass",
         value="View your Season 1 battlepass progress and rewards",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/quests",
+        value="View your daily quests and progress (earn XP!)",
         inline=False
     )
 

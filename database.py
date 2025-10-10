@@ -143,6 +143,31 @@ async def setup_database():
                 ON battle_history(winner_id, loser_id, guild_id)
             ''')
 
+            # Daily quests table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS daily_quests (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    quest_date DATE NOT NULL,
+                    quest_1_type TEXT,
+                    quest_1_target INTEGER,
+                    quest_1_progress INTEGER DEFAULT 0,
+                    quest_1_completed BOOLEAN DEFAULT FALSE,
+                    quest_1_reward INTEGER,
+                    quest_2_type TEXT,
+                    quest_2_target INTEGER,
+                    quest_2_progress INTEGER DEFAULT 0,
+                    quest_2_completed BOOLEAN DEFAULT FALSE,
+                    quest_2_reward INTEGER,
+                    quest_3_type TEXT,
+                    quest_3_target INTEGER,
+                    quest_3_progress INTEGER DEFAULT 0,
+                    quest_3_completed BOOLEAN DEFAULT FALSE,
+                    quest_3_reward INTEGER,
+                    PRIMARY KEY (user_id, guild_id, quest_date)
+                )
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
@@ -868,3 +893,111 @@ async def use_pack(user_id: int, guild_id: int) -> bool:
         ''', user_id, guild_id)
 
         return True
+
+
+# Daily Quest functions
+
+async def get_daily_quests(user_id: int, guild_id: int) -> Optional[Dict]:
+    """Get user's daily quests for today"""
+    if not pool:
+        return None
+    
+    from datetime import date
+    today = date.today()
+    
+    async with pool.acquire() as conn:
+        quests = await conn.fetchrow('''
+            SELECT * FROM daily_quests
+            WHERE user_id = $1 AND guild_id = $2 AND quest_date = $3
+        ''', user_id, guild_id, today)
+        
+        return dict(quests) if quests else None
+
+
+async def create_daily_quests(user_id: int, guild_id: int, quests: List[Dict]) -> bool:
+    """Create daily quests for a user"""
+    if not pool:
+        return False
+    
+    from datetime import date
+    today = date.today()
+    
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO daily_quests (
+                user_id, guild_id, quest_date,
+                quest_1_type, quest_1_target, quest_1_reward,
+                quest_2_type, quest_2_target, quest_2_reward,
+                quest_3_type, quest_3_target, quest_3_reward
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ON CONFLICT (user_id, guild_id, quest_date) DO NOTHING
+        ''', user_id, guild_id, today,
+             quests[0]['type'], quests[0]['target'], quests[0]['reward'],
+             quests[1]['type'], quests[1]['target'], quests[1]['reward'],
+             quests[2]['type'], quests[2]['target'], quests[2]['reward'])
+        
+        return True
+
+
+async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, increment: int = 1) -> Optional[Dict]:
+    """Update progress for quests of a specific type and check for completion"""
+    if not pool:
+        return None
+    
+    from datetime import date
+    today = date.today()
+    
+    async with pool.acquire() as conn:
+        # Get current quests
+        quests = await conn.fetchrow('''
+            SELECT * FROM daily_quests
+            WHERE user_id = $1 AND guild_id = $2 AND quest_date = $3
+        ''', user_id, guild_id, today)
+        
+        if not quests:
+            return None
+        
+        completed_quests = []
+        total_xp_earned = 0
+        
+        # Check each quest
+        for i in range(1, 4):
+            q_type = quests[f'quest_{i}_type']
+            q_target = quests[f'quest_{i}_target']
+            q_progress = quests[f'quest_{i}_progress']
+            q_completed = quests[f'quest_{i}_completed']
+            q_reward = quests[f'quest_{i}_reward']
+            
+            # Update matching quest types that aren't completed
+            if q_type == quest_type and not q_completed:
+                new_progress = q_progress + increment
+                
+                # Check if quest is now completed
+                if new_progress >= q_target:
+                    await conn.execute(f'''
+                        UPDATE daily_quests
+                        SET quest_{i}_progress = $1, quest_{i}_completed = TRUE
+                        WHERE user_id = $2 AND guild_id = $3 AND quest_date = $4
+                    ''', q_target, user_id, guild_id, today)
+                    
+                    completed_quests.append({
+                        'description': f'Quest {i}',
+                        'reward': q_reward
+                    })
+                    total_xp_earned += q_reward
+                else:
+                    # Just update progress
+                    await conn.execute(f'''
+                        UPDATE daily_quests
+                        SET quest_{i}_progress = $1
+                        WHERE user_id = $2 AND guild_id = $3 AND quest_date = $4
+                    ''', new_progress, user_id, guild_id, today)
+        
+        if completed_quests:
+            return {
+                'completed': completed_quests,
+                'total_xp': total_xp_earned
+            }
+        
+        return None
