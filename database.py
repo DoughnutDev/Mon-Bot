@@ -853,7 +853,7 @@ async def _initialize_shop_items(conn):
         await conn.execute('''
             INSERT INTO shop_items (item_type, item_name, description, price, pack_config)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (item_name) DO NOTHING
         ''', item_type, item_name, description, price, json.dumps(pack_config))
 
 
