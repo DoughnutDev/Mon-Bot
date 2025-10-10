@@ -201,7 +201,8 @@ async def setup_database():
                     description TEXT,
                     price INTEGER NOT NULL,
                     stock_unlimited BOOLEAN DEFAULT TRUE,
-                    is_active BOOLEAN DEFAULT TRUE
+                    is_active BOOLEAN DEFAULT TRUE,
+                    pack_config JSONB
                 )
             ''')
 
@@ -788,18 +789,64 @@ async def _initialize_season1_rewards(conn):
 
 
 async def _initialize_shop_items(conn):
-    """Initialize shop items"""
-    # Define shop items: packs and future items
+    """Initialize shop items with pack configurations"""
+    import json
+
+    # Define shop items with pack configurations
     shop_items = [
-        ('pack', 'Basic Pack', 'Contains 1-6 random Pokemon, rare chance for up to 10, and 0.01% shiny chance!', 100),
+        ('pack', 'Basic Pack', 'Standard pack with a few random Pokemon', 100, {
+            'min_pokemon': 3,
+            'max_pokemon': 5,
+            'shiny_chance': 0.0001,  # 0.01%
+            'legendary_chance': 0.05,  # 5%
+            'mega_pack_chance': 0,
+            'mega_pack_size': 0
+        }),
+        ('pack', 'Booster Pack', 'Enhanced pack with better odds and more Pokemon!', 250, {
+            'min_pokemon': 5,
+            'max_pokemon': 8,
+            'shiny_chance': 0.0005,  # 0.05%
+            'legendary_chance': 0.10,  # 10%
+            'mega_pack_chance': 0.15,  # 15%
+            'mega_pack_size': 12
+        }),
+        ('pack', 'Premium Pack', 'Premium pack with guaranteed rare Pokemon and excellent shiny odds!', 500, {
+            'min_pokemon': 8,
+            'max_pokemon': 12,
+            'shiny_chance': 0.001,  # 0.1%
+            'legendary_chance': 0.20,  # 20%
+            'mega_pack_chance': 0.25,  # 25%
+            'mega_pack_size': 15,
+            'guaranteed_rare': True
+        }),
+        ('pack', 'Elite Trainer Pack', 'Elite pack for serious trainers! Multiple guaranteed rares with amazing shiny rates!', 1000, {
+            'min_pokemon': 12,
+            'max_pokemon': 18,
+            'shiny_chance': 0.005,  # 0.5%
+            'legendary_chance': 0.40,  # 40%
+            'mega_pack_chance': 0.35,  # 35%
+            'mega_pack_size': 20,
+            'guaranteed_rare': True,
+            'guaranteed_rare_count': 3
+        }),
+        ('pack', 'Master Collection', 'Ultimate pack! Guaranteed shiny or multiple legendaries with the best odds!', 2500, {
+            'min_pokemon': 20,
+            'max_pokemon': 25,
+            'shiny_chance': 0.01,  # 1%
+            'legendary_chance': 0.60,  # 60%
+            'mega_pack_chance': 0.50,  # 50%
+            'mega_pack_size': 30,
+            'guaranteed_shiny_or_legendaries': True,
+            'guaranteed_legendary_count': 3
+        }),
     ]
 
-    for item_type, item_name, description, price in shop_items:
+    for item_type, item_name, description, price, pack_config in shop_items:
         await conn.execute('''
-            INSERT INTO shop_items (item_type, item_name, description, price)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO shop_items (item_type, item_name, description, price, pack_config)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT DO NOTHING
-        ''', item_type, item_name, description, price)
+        ''', item_type, item_name, description, price, json.dumps(pack_config))
 
 
 async def add_xp(user_id: int, guild_id: int, xp_amount: int = 10, season: int = 1):

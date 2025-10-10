@@ -192,8 +192,8 @@ def create_catch_embed(pokemon, user, time_taken, is_shiny=False, currency_rewar
     else:
         time_str = f"{int(time_taken)}s"
 
-    # Custom pokeball emoji
-    pokeball = "<:pokemonball:1426316759866146896>"
+    # Custom pokeball emoji (animated)
+    pokeball = "<a:pokemonball:1426316759866146896>"
     shiny_text = "✨ **SHINY!** ✨ " if is_shiny else ""
 
     # Build description with currency reward
@@ -2189,9 +2189,262 @@ async def balance(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+# Interactive Shop View
+class ShopView(View):
+    def __init__(self, user_id: int, guild_id: int, balance: int, shop_items: list):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.balance = balance
+        self.shop_items = shop_items
+        self.current_page = 0
+        self.items_per_page = 1  # Show 1 pack at a time for clean display
+
+        # Add navigation and purchase buttons
+        self.update_buttons()
+
+    def update_buttons(self):
+        """Update button states based on current page"""
+        self.clear_items()
+
+        total_pages = len(self.shop_items)
+        current_item = self.shop_items[self.current_page]
+        can_afford = self.balance >= current_item['price']
+
+        # Previous button
+        prev_btn = Button(
+            label="◀️ Previous",
+            style=discord.ButtonStyle.gray,
+            disabled=(self.current_page == 0),
+            row=0
+        )
+        prev_btn.callback = self.prev_page
+        self.add_item(prev_btn)
+
+        # Page indicator
+        page_btn = Button(
+            label=f"{self.current_page + 1}/{total_pages}",
+            style=discord.ButtonStyle.gray,
+            disabled=True,
+            row=0
+        )
+        self.add_item(page_btn)
+
+        # Next button
+        next_btn = Button(
+            label="Next ▶️",
+            style=discord.ButtonStyle.gray,
+            disabled=(self.current_page >= total_pages - 1),
+            row=0
+        )
+        next_btn.callback = self.next_page
+        self.add_item(next_btn)
+
+        # Buy button
+        buy_btn = Button(
+            label=f"💰 Buy for {current_item['price']} Pokedollars",
+            style=discord.ButtonStyle.green if can_afford else discord.ButtonStyle.red,
+            disabled=not can_afford,
+            row=1
+        )
+        buy_btn.callback = self.buy_item
+        self.add_item(buy_btn)
+
+        # Refresh button
+        refresh_btn = Button(
+            label="🔄 Refresh Balance",
+            style=discord.ButtonStyle.blurple,
+            row=1
+        )
+        refresh_btn.callback = self.refresh_balance
+        self.add_item(refresh_btn)
+
+    def create_embed(self):
+        """Create the shop embed for current page"""
+        current_item = self.shop_items[self.current_page]
+
+        # Custom pokemoncard emoji
+        pokemoncard = "<:pokemoncard:1426317656163750008>"
+
+        # Determine tier emoji
+        tier_emojis = {
+            'Basic Pack': '1️⃣',
+            'Booster Pack': '2️⃣',
+            'Premium Pack': '3️⃣',
+            'Elite Trainer Pack': '4️⃣',
+            'Master Collection': '5️⃣'
+        }
+        tier_emoji = tier_emojis.get(current_item['item_name'], '📦')
+
+        # Determine color based on tier
+        colors = {
+            'Basic Pack': discord.Color.light_grey(),
+            'Booster Pack': discord.Color.green(),
+            'Premium Pack': discord.Color.blue(),
+            'Elite Trainer Pack': discord.Color.purple(),
+            'Master Collection': discord.Color.gold()
+        }
+        color = colors.get(current_item['item_name'], discord.Color.blue())
+
+        embed = discord.Embed(
+            title=f"{pokemoncard} Pokemon Shop",
+            description=f"**Your Balance:** {self.balance} 💰",
+            color=color
+        )
+
+        # Pack details
+        can_afford = self.balance >= current_item['price']
+        afford_status = "✅ You can afford this!" if can_afford else "❌ Not enough Pokedollars"
+
+        embed.add_field(
+            name=f"{tier_emoji} {current_item['item_name']}",
+            value=f"**{current_item['description']}**",
+            inline=False
+        )
+
+        embed.add_field(
+            name="💰 Price",
+            value=f"{current_item['price']} Pokedollars",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Status",
+            value=afford_status,
+            inline=True
+        )
+
+        # Add pack details if available
+        if current_item.get('pack_config'):
+            import json
+            config = json.loads(current_item['pack_config']) if isinstance(current_item['pack_config'], str) else current_item['pack_config']
+
+            details = []
+            details.append(f"📊 **Pokemon:** {config['min_pokemon']}-{config['max_pokemon']}")
+            details.append(f"✨ **Shiny Chance:** {config['shiny_chance']*100}%")
+            details.append(f"👑 **Legendary Chance:** {config['legendary_chance']*100}%")
+
+            if config.get('mega_pack_chance', 0) > 0:
+                details.append(f"🎉 **Mega Pack:** {config['mega_pack_chance']*100}% chance for {config['mega_pack_size']} Pokemon!")
+
+            if config.get('guaranteed_rare'):
+                count = config.get('guaranteed_rare_count', 1)
+                details.append(f"⭐ **Guaranteed:** {count} Rare Pokemon!")
+
+            if config.get('guaranteed_shiny_or_legendaries'):
+                details.append(f"🌟 **Special:** Guaranteed Shiny OR {config.get('guaranteed_legendary_count', 3)}+ Legendaries!")
+
+            embed.add_field(
+                name="📋 Pack Details",
+                value="\n".join(details),
+                inline=False
+            )
+
+        embed.set_footer(text="Use the buttons below to navigate and purchase packs!")
+
+        return embed
+
+    async def prev_page(self, interaction: discord.Interaction):
+        """Go to previous page"""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your shop!", ephemeral=True)
+            return
+
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_buttons()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Go to next page"""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your shop!", ephemeral=True)
+            return
+
+        if self.current_page < len(self.shop_items) - 1:
+            self.current_page += 1
+            self.update_buttons()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    async def buy_item(self, interaction: discord.Interaction):
+        """Purchase the current item"""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your shop!", ephemeral=True)
+            return
+
+        current_item = self.shop_items[self.current_page]
+
+        # Check balance again
+        current_balance = await db.get_balance(self.user_id, self.guild_id)
+
+        if current_balance < current_item['price']:
+            await interaction.response.send_message(
+                f"❌ Not enough Pokedollars! You need **{current_item['price'] - current_balance}** more.",
+                ephemeral=True
+            )
+            return
+
+        # Attempt purchase
+        success = await db.spend_currency(self.user_id, self.guild_id, current_item['price'])
+
+        if not success:
+            await interaction.response.send_message("❌ Purchase failed. Please try again!", ephemeral=True)
+            return
+
+        # Add pack to inventory
+        await db.add_pack(self.user_id, self.guild_id, amount=1)
+
+        # Update balance
+        self.balance = await db.get_balance(self.user_id, self.guild_id)
+
+        # Create success message
+        pokemoncard = "<:pokemoncard:1426317656163750008>"
+        success_embed = discord.Embed(
+            title=f"{pokemoncard} Purchase Successful!",
+            description=f"You bought a **{current_item['item_name']}**!",
+            color=discord.Color.green()
+        )
+
+        success_embed.add_field(
+            name="New Balance",
+            value=f"{self.balance} 💰",
+            inline=True
+        )
+
+        success_embed.add_field(
+            name="Pack Added",
+            value="Use `/pack` to open it!",
+            inline=True
+        )
+
+        # Update view
+        self.update_buttons()
+        embed = self.create_embed()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(embed=success_embed, ephemeral=True)
+
+    async def refresh_balance(self, interaction: discord.Interaction):
+        """Refresh the user's balance"""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your shop!", ephemeral=True)
+            return
+
+        # Get updated balance
+        self.balance = await db.get_balance(self.user_id, self.guild_id)
+
+        # Update view
+        self.update_buttons()
+        embed = self.create_embed()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 @bot.tree.command(name='shop', description='View the Pokemon shop')
 async def shop(interaction: discord.Interaction):
-    """View available items in the shop"""
+    """View available items in the shop with interactive GUI"""
     if not interaction.guild:
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
@@ -2205,42 +2458,18 @@ async def shop(interaction: discord.Interaction):
     # Get shop items
     shop_items = await db.get_shop_items()
 
+    if not shop_items:
+        await interaction.followup.send("❌ Shop is currently empty! Check back later.")
+        return
+
     # Get user balance
     balance = await db.get_balance(user_id, guild_id)
 
-    # Custom pokemoncard emoji
-    pokemoncard = "<:pokemoncard:1426317656163750008>"
+    # Create interactive shop view
+    view = ShopView(user_id, guild_id, balance, shop_items)
+    embed = view.create_embed()
 
-    # Create embed
-    embed = discord.Embed(
-        title=f"{pokemoncard} Pokemon Shop",
-        description=f"**Your Balance:** {balance} Pokedollars",
-        color=discord.Color.blue()
-    )
-
-    if shop_items:
-        for item in shop_items:
-            # Determine if user can afford
-            can_afford = balance >= item['price']
-            afford_text = "✅" if can_afford else "❌"
-
-            item_value = f"{item['description']}\n**Price:** {item['price']} 💰 {afford_text}"
-
-            embed.add_field(
-                name=f"{item['item_name']}",
-                value=item_value,
-                inline=False
-            )
-    else:
-        embed.add_field(
-            name="Shop Empty",
-            value="No items available at the moment.",
-            inline=False
-        )
-
-    embed.set_footer(text="Use /buy [item_name] to purchase • Use /balance to check your Pokedollars")
-
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 @bot.tree.command(name='buy', description='Purchase an item from the shop')
