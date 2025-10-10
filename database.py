@@ -168,6 +168,17 @@ async def setup_database():
                 )
             ''')
 
+            # Rain usage tracking table (one-time use per user)
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS rain_usage (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    has_used BOOLEAN DEFAULT FALSE,
+                    used_at TIMESTAMP,
+                    PRIMARY KEY (user_id, guild_id)
+                )
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
@@ -999,5 +1010,59 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
                 'completed': completed_quests,
                 'total_xp': total_xp_earned
             }
-        
+
         return None
+
+
+# Rain functions
+
+async def check_rain_usage(user_id: int, guild_id: int) -> bool:
+    """Check if a user has already used their rain. Returns True if already used."""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        usage = await conn.fetchrow('''
+            SELECT has_used FROM rain_usage
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        return usage['has_used'] if usage else False
+
+
+async def mark_rain_used(user_id: int, guild_id: int) -> bool:
+    """Mark that a user has used their rain. Returns True if successful."""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO rain_usage (user_id, guild_id, has_used, used_at)
+            VALUES ($1, $2, TRUE, NOW())
+            ON CONFLICT (user_id, guild_id)
+            DO UPDATE SET has_used = TRUE, used_at = NOW()
+        ''', user_id, guild_id)
+
+        return True
+
+
+async def transfer_pokemon(from_user_id: int, to_user_id: int, catch_id: int, guild_id: int) -> bool:
+    """Transfer a Pokemon from one user to another"""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        # Verify the Pokemon belongs to the sender
+        catch = await conn.fetchrow('''
+            SELECT user_id, guild_id FROM catches WHERE id = $1
+        ''', catch_id)
+
+        if not catch or catch['user_id'] != from_user_id or catch['guild_id'] != guild_id:
+            return False
+
+        # Transfer the Pokemon
+        await conn.execute('''
+            UPDATE catches SET user_id = $1 WHERE id = $2
+        ''', to_user_id, catch_id)
+
+        return True

@@ -2100,6 +2100,76 @@ async def quests(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='rain', description='Give away Pokemon to everyone! (1 minute window, one-time use)')
+async def rain(interaction: discord.Interaction):
+    """Rain Pokemon to all users for 1 minute - one-time use only"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Check if user has already used their rain
+    has_used = await db.check_rain_usage(user_id, guild_id)
+    if has_used:
+        await interaction.followup.send("❌ You've already used your rain! Each user gets only one rain ever.", ephemeral=True)
+        return
+
+    # Get user's Pokemon
+    user_pokemon = await db.get_user_pokemon_for_trade(user_id, guild_id)
+    if not user_pokemon:
+        await interaction.followup.send("❌ You don't have any Pokemon to rain!", ephemeral=True)
+        return
+
+    # Mark rain as used
+    await db.mark_rain_used(user_id, guild_id)
+
+    # Create rain announcement
+    embed = discord.Embed(
+        title="🌧️ Pokemon Rain Active!",
+        description=f"**{interaction.user.display_name}** is raining Pokemon!\n\nReact with ⚡ to claim a random Pokemon!\n**Time remaining: 1 minute**",
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"{len(user_pokemon)} Pokemon available")
+
+    message = await interaction.followup.send(embed=embed)
+    await message.add_reaction("⚡")
+
+    # Store claimed users
+    claimed_users = set()
+
+    # Wait 60 seconds and collect reactions
+    await asyncio.sleep(60)
+
+    # Get the message again to see reactions
+    message = await interaction.channel.fetch_message(message.id)
+
+    # Process reactions
+    for reaction in message.reactions:
+        if str(reaction.emoji) == "⚡":
+            async for user in reaction.users():
+                if not user.bot and user.id != interaction.user.id and user.id not in claimed_users:
+                    # Give this user a random Pokemon
+                    if user_pokemon:
+                        random_pokemon = random.choice(user_pokemon)
+                        success = await db.transfer_pokemon(user_id, user.id, random_pokemon['id'], guild_id)
+                        if success:
+                            claimed_users.add(user.id)
+                            user_pokemon.remove(random_pokemon)
+
+    # Send results
+    result_embed = discord.Embed(
+        title="🌧️ Rain Complete!",
+        description=f"**{len(claimed_users)}** users claimed Pokemon from {interaction.user.display_name}'s rain!",
+        color=discord.Color.green()
+    )
+    await interaction.channel.send(embed=result_embed)
+
+
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
