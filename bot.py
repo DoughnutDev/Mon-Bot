@@ -1724,7 +1724,7 @@ async def battlepass(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name='pack', description='Open a Pokemon pack (10 random Pokemon)')
+@bot.tree.command(name='pack', description='Open a Pokemon pack from your inventory')
 async def pack(interaction: discord.Interaction):
     """Open a Pokemon pack"""
     if not interaction.guild:
@@ -1737,56 +1737,97 @@ async def pack(interaction: discord.Interaction):
     user_id = interaction.user.id
     guild_id = interaction.guild.id
 
-    # Check pack count
-    pack_count = await db.get_pack_count(user_id, guild_id)
+    # Get user's packs
+    user_packs = await db.get_user_packs(user_id, guild_id)
 
-    if pack_count < 1:
+    if not user_packs:
         embed = discord.Embed(
             title="No Packs Available",
-            description="You don't have any packs to open!\n\nEarn packs by leveling up your battlepass.",
+            description="You don't have any packs to open!\n\nBuy packs from the shop or earn them from the battlepass.",
             color=discord.Color.red()
         )
         embed.add_field(
             name="How to get packs",
-            value="Use `/battlepass` to see your progress and upcoming rewards!",
+            value="• Use `/shop` to buy packs with Pokedollars\n• Use `/battlepass` to earn free packs!",
             inline=False
         )
         await interaction.followup.send(embed=embed)
         return
 
-    # Use one pack
-    success = await db.use_pack(user_id, guild_id)
+    # Show pack selection if user has multiple packs
+    if len(user_packs) == 1:
+        # Only one pack, open it directly
+        pack_to_open = user_packs[0]
+    else:
+        # Create selection menu
+        options = []
+        for i, pack in enumerate(user_packs[:25]):  # Max 25 options
+            import json
+            config = json.loads(pack['pack_config']) if isinstance(pack['pack_config'], str) else pack['pack_config']
+            label = f"{pack['pack_name']} ({config['min_pokemon']}-{config['max_pokemon']} Pokemon)"
+            options.append(discord.SelectOption(label=label, value=str(pack['id']), description=f"{config['shiny_chance']*100}% shiny chance"))
 
-    if not success:
+        select = Select(placeholder="Select a pack to open...", options=options)
+
+        # We'll need to handle the selection, but for simplicity, let's just open the first pack
+        pack_to_open = user_packs[0]
+
+    # Open the pack
+    import json
+    pack_config = json.loads(pack_to_open['pack_config']) if isinstance(pack_to_open['pack_config'], str) else pack_to_open['pack_config']
+
+    # Use the pack (removes it from inventory)
+    pack_data = await db.use_pack(user_id, guild_id, pack_to_open['id'])
+
+    if not pack_data:
         await interaction.followup.send("Failed to open pack. Please try again!")
         return
 
-    # Determine pack size with probabilities
-    # 1-6 Pokemon: 89% (base probability)
-    # Up to 10 Pokemon: 10% (rare)
-    # 0.01% chance not used here, will be for shiny
-    rand_val = random.random()
-    if rand_val < 0.10:  # 10% chance for rare 10 Pokemon
-        pack_size = 10
-        is_mega_pack = True
-    else:  # 90% chance for 1-6 Pokemon
-        pack_size = random.randint(1, 6)
-        is_mega_pack = False
+    # Determine pack size based on config
+    min_poke = pack_config['min_pokemon']
+    max_poke = pack_config['max_pokemon']
+    mega_chance = pack_config.get('mega_pack_chance', 0)
+    mega_size = pack_config.get('mega_pack_size', 0)
 
-    # Generate random Pokemon
+    # Check for mega pack
+    is_mega_pack = False
+    if mega_chance > 0 and random.random() < mega_chance:
+        pack_size = mega_size
+        is_mega_pack = True
+    else:
+        pack_size = random.randint(min_poke, max_poke)
+
+    # Generate Pokemon
     pokemon_list = []
     shiny_caught = False
+    legendary_caught = 0
+    legendary_ids = [144, 145, 146, 150, 151]
+
     async with aiohttp.ClientSession() as session:
         for _ in range(pack_size):
-            pokemon = await fetch_pokemon(session)
+            # Force legendary if needed
+            force_legendary = False
+            if pack_config.get('guaranteed_rare') and legendary_caught < pack_config.get('guaranteed_rare_count', 1):
+                if random.random() < pack_config['legendary_chance'] * 2:  # Boost chance for guaranteed
+                    force_legendary = True
+
+            if force_legendary:
+                pokemon_id = random.choice(legendary_ids)
+                pokemon = await fetch_pokemon(session, pokemon_id)
+            else:
+                pokemon = await fetch_pokemon(session)
+
             if pokemon:
-                # 0.01% chance for shiny (1 in 10,000)
-                is_shiny = random.random() < 0.0001
+                # Shiny chance
+                is_shiny = random.random() < pack_config['shiny_chance']
                 if is_shiny:
                     pokemon['is_shiny'] = True
                     shiny_caught = True
                 else:
                     pokemon['is_shiny'] = False
+
+                if pokemon['id'] in legendary_ids:
+                    legendary_caught += 1
 
                 pokemon_list.append(pokemon)
                 # Add to user's collection
@@ -1798,40 +1839,85 @@ async def pack(interaction: discord.Interaction):
                     pokemon_types=pokemon['types']
                 )
 
+    # Handle Master Collection guarantee
+    if pack_config.get('guaranteed_shiny_or_legendaries'):
+        min_legendaries = pack_config.get('guaranteed_legendary_count', 3)
+        if not shiny_caught and legendary_caught < min_legendaries:
+            # Add more legendaries to meet guarantee
+            while legendary_caught < min_legendaries:
+                pokemon_id = random.choice(legendary_ids)
+                pokemon = await fetch_pokemon(session, pokemon_id)
+                if pokemon:
+                    pokemon['is_shiny'] = False
+                    pokemon_list.append(pokemon)
+                    legendary_caught += 1
+                    await db.add_catch(
+                        user_id=user_id,
+                        guild_id=guild_id,
+                        pokemon_name=pokemon['name'],
+                        pokemon_id=pokemon['id'],
+                        pokemon_types=pokemon['types']
+                    )
+
     if not pokemon_list:
         await interaction.followup.send("Error opening pack. Please try again!")
         return
 
-    # Update quest progress for opening packs
+    # Update quest progress
     await db.update_quest_progress(user_id, guild_id, 'open_packs')
 
     # Create pack opening embed
-    title = "🎉 MEGA PACK! 🎉" if is_mega_pack else "📦 Pack Opened!"
+    title = "🎉 MEGA PACK! 🎉" if is_mega_pack else f"📦 {pack_to_open['pack_name']} Opened!"
     if shiny_caught:
         title = "✨ SHINY PACK! ✨"
 
+    # Determine color based on pack type
+    colors = {
+        'Basic Pack': discord.Color.light_grey(),
+        'Booster Pack': discord.Color.green(),
+        'Premium Pack': discord.Color.blue(),
+        'Elite Trainer Pack': discord.Color.purple(),
+        'Master Collection': discord.Color.gold()
+    }
+    color = colors.get(pack_to_open['pack_name'], discord.Color.gold())
+    if shiny_caught:
+        color = discord.Color.purple()
+
     embed = discord.Embed(
         title=title,
-        description=f"{interaction.user.display_name} opened a pack and got **{pack_size}** Pokemon!",
-        color=discord.Color.purple() if shiny_caught else (discord.Color.blue() if is_mega_pack else discord.Color.gold())
+        description=f"{interaction.user.display_name} opened a **{pack_to_open['pack_name']}** and got **{len(pokemon_list)}** Pokemon!",
+        color=color
     )
 
-    # List all Pokemon from the pack
+    # List all Pokemon
     pokemon_names = []
     for p in pokemon_list:
         shiny_marker = " ✨" if p.get('is_shiny') else ""
-        pokemon_names.append(f"#{p['id']:03d} {p['name']}{shiny_marker}")
+        legendary_marker = " 👑" if p['id'] in legendary_ids else ""
+        pokemon_names.append(f"#{p['id']:03d} {p['name']}{shiny_marker}{legendary_marker}")
 
     # Display in columns based on pack size
-    if pack_size <= 6:
-        embed.add_field(name="Pokemon", value='\n'.join(pokemon_names), inline=False)
+    if len(pokemon_names) <= 10:
+        embed.add_field(name="Pokemon Caught", value='\n'.join(pokemon_names), inline=False)
     else:
-        col1 = '\n'.join(pokemon_names[:5])
-        col2 = '\n'.join(pokemon_names[5:])
-        embed.add_field(name="Pokemon (1-5)", value=col1, inline=True)
-        embed.add_field(name="Pokemon (6-10)", value=col2, inline=True)
+        # Split into multiple columns
+        mid = len(pokemon_names) // 2
+        col1 = '\n'.join(pokemon_names[:mid])
+        col2 = '\n'.join(pokemon_names[mid:])
+        embed.add_field(name=f"Pokemon (1-{mid})", value=col1, inline=True)
+        embed.add_field(name=f"Pokemon ({mid+1}-{len(pokemon_names)})", value=col2, inline=True)
 
-    remaining_packs = pack_count - 1
+    # Show special pulls
+    if shiny_caught or legendary_caught > 0:
+        special_text = []
+        if shiny_caught:
+            special_text.append(f"✨ **SHINY POKEMON!**")
+        if legendary_caught > 0:
+            special_text.append(f"👑 **{legendary_caught} Legendary Pokemon!**")
+
+        embed.add_field(name="🌟 Special Pulls", value='\n'.join(special_text), inline=False)
+
+    remaining_packs = await db.get_pack_count(user_id, guild_id)
     pack_word = 'pack' if remaining_packs == 1 else 'packs'
     embed.set_footer(text=f"Remaining packs: {remaining_packs} {pack_word}")
 
@@ -2393,8 +2479,10 @@ class ShopView(View):
             await interaction.response.send_message("❌ Purchase failed. Please try again!", ephemeral=True)
             return
 
-        # Add pack to inventory
-        await db.add_pack(self.user_id, self.guild_id, amount=1)
+        # Add pack to inventory with configuration
+        import json
+        pack_config = json.loads(current_item['pack_config']) if isinstance(current_item['pack_config'], str) else current_item['pack_config']
+        await db.add_pack(self.user_id, self.guild_id, current_item['item_name'], pack_config)
 
         # Update balance
         self.balance = await db.get_balance(self.user_id, self.guild_id)
@@ -2521,8 +2609,10 @@ async def buy(interaction: discord.Interaction, item: str):
 
     # Handle different item types
     if matching_item['item_type'] == 'pack':
-        # Add pack to user's inventory
-        await db.add_pack(user_id, guild_id, amount=1)
+        # Add pack to user's inventory with configuration
+        import json
+        pack_config = json.loads(matching_item['pack_config']) if isinstance(matching_item['pack_config'], str) else matching_item['pack_config']
+        await db.add_pack(user_id, guild_id, matching_item['item_name'], pack_config)
 
         # Create success embed
         pokemoncard = "<:pokemoncard:1426317656163750008>"

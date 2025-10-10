@@ -74,14 +74,22 @@ async def setup_database():
                 )
             ''')
 
-            # Packs table - tracks user's pack inventory
+            # Packs table - tracks user's pack inventory by type
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS user_packs (
+                    id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     guild_id BIGINT NOT NULL,
-                    pack_count INTEGER DEFAULT 0,
-                    PRIMARY KEY (user_id, guild_id)
+                    pack_name TEXT NOT NULL,
+                    pack_config JSONB NOT NULL,
+                    acquired_at TIMESTAMP DEFAULT NOW()
                 )
+            ''')
+
+            # Create index for faster pack queries
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_user_packs
+                ON user_packs(user_id, guild_id)
             ''')
 
             # Battlepass rewards table - defines rewards for each level
@@ -946,57 +954,71 @@ async def get_battlepass_rewards(season: int = 1) -> List[Dict]:
 
 # Pack functions
 
-async def add_packs(user_id: int, guild_id: int, amount: int = 1):
-    """Add packs to a user's inventory"""
+async def add_pack(user_id: int, guild_id: int, pack_name: str, pack_config: dict):
+    """Add a specific pack to user's inventory"""
     if not pool:
         return
 
+    import json
+
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO user_packs (user_id, guild_id, pack_count)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id, guild_id)
-            DO UPDATE SET pack_count = user_packs.pack_count + $3
-        ''', user_id, guild_id, amount)
+            INSERT INTO user_packs (user_id, guild_id, pack_name, pack_config)
+            VALUES ($1, $2, $3, $4)
+        ''', user_id, guild_id, pack_name, json.dumps(pack_config))
+
+
+async def get_user_packs(user_id: int, guild_id: int) -> List[Dict]:
+    """Get all packs in user's inventory"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT id, pack_name, pack_config, acquired_at
+            FROM user_packs
+            WHERE user_id = $1 AND guild_id = $2
+            ORDER BY acquired_at DESC
+        ''', user_id, guild_id)
+
+        return [dict(row) for row in rows]
 
 
 async def get_pack_count(user_id: int, guild_id: int) -> int:
-    """Get number of packs a user has"""
+    """Get total number of packs a user has"""
     if not pool:
         return 0
 
     async with pool.acquire() as conn:
         count = await conn.fetchval('''
-            SELECT pack_count FROM user_packs
+            SELECT COUNT(*) FROM user_packs
             WHERE user_id = $1 AND guild_id = $2
         ''', user_id, guild_id)
 
         return count if count else 0
 
 
-async def use_pack(user_id: int, guild_id: int) -> bool:
-    """Use one pack from user's inventory. Returns True if successful."""
+async def use_pack(user_id: int, guild_id: int, pack_id: int) -> Optional[Dict]:
+    """Use a specific pack from user's inventory. Returns pack data if successful."""
     if not pool:
-        return False
+        return None
 
     async with pool.acquire() as conn:
-        # Check if user has packs
-        count = await conn.fetchval('''
-            SELECT pack_count FROM user_packs
-            WHERE user_id = $1 AND guild_id = $2
-        ''', user_id, guild_id)
+        # Get pack data
+        pack = await conn.fetchrow('''
+            SELECT pack_name, pack_config FROM user_packs
+            WHERE id = $1 AND user_id = $2 AND guild_id = $3
+        ''', pack_id, user_id, guild_id)
 
-        if not count or count < 1:
-            return False
+        if not pack:
+            return None
 
-        # Decrement pack count
+        # Delete the pack
         await conn.execute('''
-            UPDATE user_packs
-            SET pack_count = pack_count - 1
-            WHERE user_id = $1 AND guild_id = $2
-        ''', user_id, guild_id)
+            DELETE FROM user_packs WHERE id = $1
+        ''', pack_id)
 
-        return True
+        return dict(pack)
 
 
 # Daily Quest functions
