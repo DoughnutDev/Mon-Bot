@@ -1464,16 +1464,23 @@ class PokedexView(View):
         page_pokemon = self.pokemon_list[start_idx:end_idx]
 
         if page_pokemon:
-            # Create ranked list
-            pokemon_text = []
-            for idx, poke in enumerate(page_pokemon, start=start_idx + 1):
-                count_display = f"x{poke['count']}" if poke['count'] > 1 else "x1"
-                level = poke.get('level', 1)
-                pokemon_text.append(f"`#{idx:2d}` #{poke['pokemon_id']:03d} {poke['pokemon_name']:<12} Lv.{level} {count_display}")
+            # Create table header
+            header = " #    Name          Lvl  Qty\n" + "─" * 28
+
+            # Create table rows
+            pokemon_rows = [header]
+            for poke in page_pokemon:
+                pokedex_num = f"{poke['pokemon_id']:03d}"
+                name = poke['pokemon_name'][:12].ljust(12)  # Limit name to 12 chars
+                level = f"{poke.get('level', 1):<3}"
+                count = f"x{poke['count']}"
+
+                row = f"{pokedex_num}  {name}  {level}  {count}"
+                pokemon_rows.append(row)
 
             embed.add_field(
-                name=f"📊 Showing: {sort_display}",
-                value='\n'.join(pokemon_text),
+                name=f"📊 {sort_display}",
+                value=f"```\n" + '\n'.join(pokemon_rows) + "\n```",
                 inline=False
             )
         else:
