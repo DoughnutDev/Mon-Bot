@@ -276,7 +276,8 @@ async def on_message(message):
         channel_id = str(message.channel.id)
 
         if channel_id in active_spawns:
-            spawn_data = active_spawns[channel_id]
+            # Remove spawn immediately to prevent race condition (first come first serve)
+            spawn_data = active_spawns.pop(channel_id)
             pokemon = spawn_data['pokemon']
             spawn_time = spawn_data['spawn_time']
 
@@ -345,9 +346,6 @@ async def on_message(message):
                     color=discord.Color.green()
                 )
                 await message.channel.send(embed=quest_embed)
-
-            # Remove active spawn
-            del active_spawns[channel_id]
 
 
 @tasks.loop(seconds=60)  # Check every minute
