@@ -954,7 +954,11 @@ class BattleView(View):
     async def update_display(self, interaction: discord.Interaction):
         """Update the display"""
         embed = self.create_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        # Check if interaction was already responded to (deferred)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(placeholder=f"Select your Pokemon...", custom_id="battle_user1_select", min_values=1, max_values=1)
     async def user1_select(self, interaction: discord.Interaction, select: Select):
@@ -1027,16 +1031,23 @@ class BattleView(View):
 
         # Check if both are ready
         if self.user1_ready and self.user2_ready:
+            # Defer the interaction immediately to prevent timeout
+            await interaction.response.defer()
+
             # Store channel for posting battle log later
             self.battle_channel = interaction.channel
 
-            # Start battle
+            # Start battle (this does async DB calls)
             await self.start_battle()
 
             # Remove the ready button
             self.remove_item(button)
 
-        await self.update_display(interaction)
+            # Update display (will use edit_original_response since we deferred)
+            await self.update_display(interaction)
+        else:
+            # Not both ready yet, just update normally
+            await self.update_display(interaction)
 
     @discord.ui.button(label="Forfeit", style=discord.ButtonStyle.red, custom_id="battle_forfeit", row=4)
     async def forfeit_button(self, interaction: discord.Interaction, button: Button):
@@ -1418,6 +1429,14 @@ class PokedexView(View):
         else:
             self.pokemon_list = await db.get_pokemon_with_counts(self.user_id, self.guild_id, self.sort_by)
 
+        # Fetch levels for each Pokemon species
+        for pokemon in self.pokemon_list:
+            level = await db.get_species_level(
+                self.user_id, self.guild_id,
+                pokemon['pokemon_id'], pokemon['pokemon_name']
+            )
+            pokemon['level'] = level
+
     def create_embed(self, stats: dict):
         """Create the Pokedex embed"""
         total_pages = max(1, (len(self.pokemon_list) + self.per_page - 1) // self.per_page)
@@ -1449,7 +1468,8 @@ class PokedexView(View):
             pokemon_text = []
             for idx, poke in enumerate(page_pokemon, start=start_idx + 1):
                 count_display = f"x{poke['count']}" if poke['count'] > 1 else "x1"
-                pokemon_text.append(f"`#{idx:2d}` #{poke['pokemon_id']:03d} {poke['pokemon_name']:<12} {count_display}")
+                level = poke.get('level', 1)
+                pokemon_text.append(f"`#{idx:2d}` #{poke['pokemon_id']:03d} {poke['pokemon_name']:<12} Lv.{level} {count_display}")
 
             embed.add_field(
                 name=f"📊 Showing: {sort_display}",
