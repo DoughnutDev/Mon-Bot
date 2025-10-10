@@ -506,6 +506,7 @@ class BattleView(View):
         self.battle_started = False
         self.battle_log = []
         self.winner = None
+        self.battle_channel = None  # Store channel for posting battle log
 
         # Battle state
         self.current_turn = None  # 1 or 2
@@ -515,6 +516,8 @@ class BattleView(View):
         self.p2_max_hp = 0
         self.p1_stats = {}
         self.p2_stats = {}
+        self.p1_level = 1
+        self.p2_level = 1
         self.turn_count = 0
 
     async def load_pokemon(self):
@@ -563,13 +566,19 @@ class BattleView(View):
         """Initialize battle after both players are ready"""
         self.battle_started = True
 
-        # Get Pokemon levels
-        p1_level = await db.get_pokemon_level(self.user1_choice['id'])
-        p2_level = await db.get_pokemon_level(self.user2_choice['id'])
+        # Get Pokemon species levels (shared across all of same species)
+        self.p1_level = await db.get_species_level(
+            self.user1.id, self.guild_id,
+            self.user1_choice['pokemon_id'], self.user1_choice['pokemon_name']
+        )
+        self.p2_level = await db.get_species_level(
+            self.user2.id, self.guild_id,
+            self.user2_choice['pokemon_id'], self.user2_choice['pokemon_name']
+        )
 
         # Calculate stats
-        self.p1_stats = self.calculate_stats(self.user1_choice['pokemon_id'], p1_level)
-        self.p2_stats = self.calculate_stats(self.user2_choice['pokemon_id'], p2_level)
+        self.p1_stats = self.calculate_stats(self.user1_choice['pokemon_id'], self.p1_level)
+        self.p2_stats = self.calculate_stats(self.user2_choice['pokemon_id'], self.p2_level)
 
         # Set HP
         self.p1_hp = self.p1_stats['hp']
@@ -585,8 +594,8 @@ class BattleView(View):
 
         # Battle log
         self.battle_log.append(f"⚔️ **Battle Start!**")
-        self.battle_log.append(f"{self.user1.display_name}'s **{self.user1_choice['pokemon_name']}** (Lv.{p1_level})")
-        self.battle_log.append(f"vs {self.user2.display_name}'s **{self.user2_choice['pokemon_name']}** (Lv.{p2_level})")
+        self.battle_log.append(f"{self.user1.display_name}'s **{self.user1_choice['pokemon_name']}** (Lv.{self.p1_level})")
+        self.battle_log.append(f"vs {self.user2.display_name}'s **{self.user2_choice['pokemon_name']}** (Lv.{self.p2_level})")
         self.battle_log.append("")
 
         # Add move buttons dynamically
@@ -731,25 +740,104 @@ class BattleView(View):
         for item in self.children:
             item.disabled = True
 
-        # Record battle
+        # Determine winner/loser
         if self.winner == 1:
             winner_id, loser_id = self.user1.id, self.user2.id
             winner_pokemon_id, loser_pokemon_id = self.user1_choice['id'], self.user2_choice['id']
             winner_name, loser_name = self.user1_choice['pokemon_name'], self.user2_choice['pokemon_name']
+            winner_pokemon_species_id, loser_pokemon_species_id = self.user1_choice['pokemon_id'], self.user2_choice['pokemon_id']
+            winner_user, loser_user = self.user1, self.user2
         else:
             winner_id, loser_id = self.user2.id, self.user1.id
             winner_pokemon_id, loser_pokemon_id = self.user2_choice['id'], self.user1_choice['id']
             winner_name, loser_name = self.user2_choice['pokemon_name'], self.user1_choice['pokemon_name']
+            winner_pokemon_species_id, loser_pokemon_species_id = self.user2_choice['pokemon_id'], self.user1_choice['pokemon_id']
+            winner_user, loser_user = self.user2, self.user1
 
+        # Record battle
         await db.record_battle(
             self.guild_id, winner_id, loser_id,
             winner_pokemon_id, loser_pokemon_id,
             winner_name, loser_name, self.turn_count
         )
 
-        # Award XP
+        # Award battlepass XP
         await db.add_xp(winner_id, self.guild_id, 50)
         await db.add_xp(loser_id, self.guild_id, 10)
+
+        # Award Pokemon species XP
+        winner_xp_result = await db.add_species_xp(
+            winner_id, self.guild_id,
+            winner_pokemon_species_id, winner_name,
+            50,  # Winner gets 50 XP
+            is_win=True
+        )
+
+        loser_xp_result = await db.add_species_xp(
+            loser_id, self.guild_id,
+            loser_pokemon_species_id, loser_name,
+            20,  # Loser gets 20 XP
+            is_win=False
+        )
+
+        # Add level up notifications to battle log
+        if winner_xp_result and winner_xp_result.get('leveled_up'):
+            self.battle_log.append("")
+            self.battle_log.append(f"✨ **{winner_user.display_name}'s {winner_name} leveled up!**")
+            self.battle_log.append(f"Level {winner_xp_result['old_level']} → Level {winner_xp_result['new_level']}")
+
+        if loser_xp_result and loser_xp_result.get('leveled_up'):
+            self.battle_log.append("")
+            self.battle_log.append(f"✨ **{loser_user.display_name}'s {loser_name} leveled up!**")
+            self.battle_log.append(f"Level {loser_xp_result['old_level']} → Level {loser_xp_result['new_level']}")
+
+        # Post full battle log to channel
+        if self.battle_channel:
+            await self.post_battle_log()
+
+    async def post_battle_log(self):
+        """Post the complete battle log as a message in the channel"""
+        # Create battle summary embed
+        embed = discord.Embed(
+            title="⚔️ Battle Complete!",
+            description=f"**{self.user1.display_name}** vs **{self.user2.display_name}**",
+            color=discord.Color.gold()
+        )
+
+        # Winner announcement
+        if self.winner == 1:
+            winner_name = self.user1.display_name
+            winner_pokemon = self.user1_choice['pokemon_name']
+        else:
+            winner_name = self.user2.display_name
+            winner_pokemon = self.user2_choice['pokemon_name']
+
+        embed.add_field(
+            name="🏆 Victor",
+            value=f"**{winner_name}** with {winner_pokemon}!",
+            inline=False
+        )
+
+        embed.add_field(
+            name=f"📊 Battle Stats",
+            value=f"Turns: {self.turn_count}",
+            inline=False
+        )
+
+        # Split battle log into chunks if needed (Discord has a 4096 char limit)
+        full_log = '\n'.join(self.battle_log)
+
+        # Add battle log (truncate if too long)
+        if len(full_log) > 4000:
+            full_log = full_log[:4000] + "\n...(battle log truncated)"
+
+        embed.add_field(
+            name="📜 Battle Log",
+            value=full_log,
+            inline=False
+        )
+
+        await self.battle_channel.send(embed=embed)
 
     def create_embed(self):
         """Create the battle embed"""
@@ -939,6 +1027,9 @@ class BattleView(View):
 
         # Check if both are ready
         if self.user1_ready and self.user2_ready:
+            # Store channel for posting battle log later
+            self.battle_channel = interaction.channel
+
             # Start battle
             await self.start_battle()
 
@@ -953,6 +1044,9 @@ class BattleView(View):
         if interaction.user.id not in [self.user1.id, self.user2.id]:
             await interaction.response.send_message("This is not your battle!", ephemeral=True)
             return
+
+        # Store channel for posting battle log
+        self.battle_channel = interaction.channel
 
         self.battle_started = True
         self.battle_log = [f"❌ **{interaction.user.display_name} forfeited the battle!**"]

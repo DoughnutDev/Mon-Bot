@@ -95,7 +95,7 @@ async def setup_database():
                 )
             ''')
 
-            # Pokemon stats table - for battle system
+            # Pokemon stats table - for battle system (per individual catch)
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS pokemon_stats (
                     catch_id INTEGER PRIMARY KEY,
@@ -103,6 +103,21 @@ async def setup_database():
                     experience INTEGER DEFAULT 0,
                     battles_won INTEGER DEFAULT 0,
                     battles_lost INTEGER DEFAULT 0
+                )
+            ''')
+
+            # Pokemon species stats table - shared XP/level for all Pokemon of same species
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS pokemon_species_stats (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    pokemon_id INTEGER NOT NULL,
+                    pokemon_name TEXT NOT NULL,
+                    level INTEGER DEFAULT 1,
+                    experience INTEGER DEFAULT 0,
+                    battles_won INTEGER DEFAULT 0,
+                    battles_lost INTEGER DEFAULT 0,
+                    PRIMARY KEY (user_id, guild_id, pokemon_id)
                 )
             ''')
 
@@ -606,6 +621,77 @@ async def get_battle_stats(user_id: int, guild_id: int) -> Dict:
         ''', user_id, guild_id)
 
         return {'wins': wins or 0, 'losses': losses or 0}
+
+
+async def get_species_level(user_id: int, guild_id: int, pokemon_id: int, pokemon_name: str) -> int:
+    """Get the level of a Pokemon species for a user"""
+    if not pool:
+        return 1
+
+    async with pool.acquire() as conn:
+        level = await conn.fetchval('''
+            SELECT level FROM pokemon_species_stats
+            WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = $3
+        ''', user_id, guild_id, pokemon_id)
+
+        return level if level else 1
+
+
+async def add_species_xp(user_id: int, guild_id: int, pokemon_id: int, pokemon_name: str, xp_amount: int, is_win: bool = True) -> Dict:
+    """Add XP to a Pokemon species and handle level ups"""
+    if not pool:
+        return None
+
+    async with pool.acquire() as conn:
+        # Get or create species entry
+        species = await conn.fetchrow('''
+            INSERT INTO pokemon_species_stats (user_id, guild_id, pokemon_id, pokemon_name, experience, level)
+            VALUES ($1, $2, $3, $4, $5, 1)
+            ON CONFLICT (user_id, guild_id, pokemon_id)
+            DO UPDATE SET experience = pokemon_species_stats.experience + $5
+            RETURNING *
+        ''', user_id, guild_id, pokemon_id, pokemon_name, xp_amount)
+
+        # Update win/loss count
+        if is_win:
+            await conn.execute('''
+                UPDATE pokemon_species_stats
+                SET battles_won = battles_won + 1
+                WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = $3
+            ''', user_id, guild_id, pokemon_id)
+        else:
+            await conn.execute('''
+                UPDATE pokemon_species_stats
+                SET battles_lost = battles_lost + 1
+                WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = $3
+            ''', user_id, guild_id, pokemon_id)
+
+        # Calculate new level (100 XP per level, no cap)
+        new_level = (species['experience'] // 100) + 1
+        old_level = species['level']
+
+        # Update level if it changed
+        if new_level != old_level:
+            await conn.execute('''
+                UPDATE pokemon_species_stats
+                SET level = $1
+                WHERE user_id = $2 AND guild_id = $3 AND pokemon_id = $4
+            ''', new_level, user_id, guild_id, pokemon_id)
+
+            return {
+                'leveled_up': True,
+                'old_level': old_level,
+                'new_level': new_level,
+                'current_xp': species['experience'],
+                'pokemon_name': pokemon_name
+            }
+
+        return {
+            'leveled_up': False,
+            'level': new_level,
+            'current_xp': species['experience'],
+            'pokemon_name': pokemon_name
+        }
 
 
 # Battlepass functions
