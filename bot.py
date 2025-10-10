@@ -180,7 +180,7 @@ def create_spawn_embed(pokemon):
     return embed
 
 
-def create_catch_embed(pokemon, user, time_taken):
+def create_catch_embed(pokemon, user, time_taken, is_shiny=False, currency_reward=0):
     """Create an embed for a successful catch"""
     types_str = ', '.join(pokemon['types']).title()
 
@@ -192,10 +192,19 @@ def create_catch_embed(pokemon, user, time_taken):
     else:
         time_str = f"{int(time_taken)}s"
 
+    # Custom pokeball emoji
+    pokeball = "<:pokemonball:1426316759866146896>"
+    shiny_text = "✨ **SHINY!** ✨ " if is_shiny else ""
+
+    # Build description with currency reward
+    description = f"{shiny_text}**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n**Caught in:** {time_str}"
+    if currency_reward > 0:
+        description += f"\n💰 **Earned:** {currency_reward} Pokedollars"
+
     embed = discord.Embed(
-        title=f"{user.display_name} caught {pokemon['name']}!",
-        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n**Caught in:** {time_str}",
-        color=discord.Color.gold()
+        title=f"{pokeball} {user.display_name} caught {pokemon['name']}!",
+        description=description,
+        color=discord.Color.gold() if not is_shiny else discord.Color.purple()
     )
 
     if pokemon['sprite']:
@@ -297,6 +306,15 @@ async def on_message(message):
                 pokemon_types=pokemon['types']
             )
 
+            # Award Pokedollars for catching (5-15 based on rarity)
+            legendary_ids = [144, 145, 146, 150, 151]
+            if pokemon['id'] in legendary_ids:
+                currency_reward = 50  # Legendary = 50 Pokedollars
+            else:
+                currency_reward = random.randint(5, 15)  # Regular = 5-15 Pokedollars
+
+            new_balance = await db.add_currency(user_id, guild_id, currency_reward)
+
             # Add XP to battlepass (10 XP per catch)
             xp_result = await db.add_xp(user_id, guild_id, xp_amount=10)
 
@@ -323,8 +341,8 @@ async def on_message(message):
                     if not xp_result or not xp_result.get('leveled_up'):
                         xp_result = quest_xp_result
 
-            # Send catch confirmation with time
-            embed = create_catch_embed(pokemon, message.author, time_taken)
+            # Send catch confirmation with time and currency reward
+            embed = create_catch_embed(pokemon, message.author, time_taken, currency_reward=currency_reward)
             await message.channel.send(embed=embed)
 
             # If user leveled up, send level up message
@@ -1743,12 +1761,33 @@ async def pack(interaction: discord.Interaction):
         await interaction.followup.send("Failed to open pack. Please try again!")
         return
 
-    # Generate 10 random Pokemon
+    # Determine pack size with probabilities
+    # 1-6 Pokemon: 89% (base probability)
+    # Up to 10 Pokemon: 10% (rare)
+    # 0.01% chance not used here, will be for shiny
+    rand_val = random.random()
+    if rand_val < 0.10:  # 10% chance for rare 10 Pokemon
+        pack_size = 10
+        is_mega_pack = True
+    else:  # 90% chance for 1-6 Pokemon
+        pack_size = random.randint(1, 6)
+        is_mega_pack = False
+
+    # Generate random Pokemon
     pokemon_list = []
+    shiny_caught = False
     async with aiohttp.ClientSession() as session:
-        for _ in range(10):
+        for _ in range(pack_size):
             pokemon = await fetch_pokemon(session)
             if pokemon:
+                # 0.01% chance for shiny (1 in 10,000)
+                is_shiny = random.random() < 0.0001
+                if is_shiny:
+                    pokemon['is_shiny'] = True
+                    shiny_caught = True
+                else:
+                    pokemon['is_shiny'] = False
+
                 pokemon_list.append(pokemon)
                 # Add to user's collection
                 await db.add_catch(
@@ -1767,20 +1806,30 @@ async def pack(interaction: discord.Interaction):
     await db.update_quest_progress(user_id, guild_id, 'open_packs')
 
     # Create pack opening embed
+    title = "🎉 MEGA PACK! 🎉" if is_mega_pack else "📦 Pack Opened!"
+    if shiny_caught:
+        title = "✨ SHINY PACK! ✨"
+
     embed = discord.Embed(
-        title="📦 Pack Opened!",
-        description=f"{interaction.user.display_name} opened a pack!",
-        color=discord.Color.gold()
+        title=title,
+        description=f"{interaction.user.display_name} opened a pack and got **{pack_size}** Pokemon!",
+        color=discord.Color.purple() if shiny_caught else (discord.Color.blue() if is_mega_pack else discord.Color.gold())
     )
 
     # List all Pokemon from the pack
-    pokemon_names = [f"#{p['id']} {p['name']}" for p in pokemon_list]
-    # Split into 2 columns for better display
-    col1 = '\n'.join(pokemon_names[:5])
-    col2 = '\n'.join(pokemon_names[5:])
+    pokemon_names = []
+    for p in pokemon_list:
+        shiny_marker = " ✨" if p.get('is_shiny') else ""
+        pokemon_names.append(f"#{p['id']:03d} {p['name']}{shiny_marker}")
 
-    embed.add_field(name="Pokemon (1-5)", value=col1, inline=True)
-    embed.add_field(name="Pokemon (6-10)", value=col2, inline=True)
+    # Display in columns based on pack size
+    if pack_size <= 6:
+        embed.add_field(name="Pokemon", value='\n'.join(pokemon_names), inline=False)
+    else:
+        col1 = '\n'.join(pokemon_names[:5])
+        col2 = '\n'.join(pokemon_names[5:])
+        embed.add_field(name="Pokemon (1-5)", value=col1, inline=True)
+        embed.add_field(name="Pokemon (6-10)", value=col2, inline=True)
 
     remaining_packs = pack_count - 1
     pack_word = 'pack' if remaining_packs == 1 else 'packs'
@@ -2100,6 +2149,311 @@ async def quests(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='balance', description='Check your Pokedollar balance')
+async def balance(interaction: discord.Interaction):
+    """Check Pokedollar balance"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get balance
+    balance_amount = await db.get_balance(user_id, guild_id)
+
+    # Create embed
+    embed = discord.Embed(
+        title="💰 Pokedollars",
+        description=f"{interaction.user.display_name}'s Balance",
+        color=discord.Color.gold()
+    )
+
+    embed.add_field(
+        name="Balance",
+        value=f"**{balance_amount}** Pokedollars",
+        inline=False
+    )
+
+    embed.add_field(
+        name="How to earn",
+        value="• Catch Pokemon (5-15 💰)\n• Catch Legendaries (50 💰)\n• Sell duplicate Pokemon",
+        inline=False
+    )
+
+    embed.set_footer(text="Use /shop to spend your Pokedollars!")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name='shop', description='View the Pokemon shop')
+async def shop(interaction: discord.Interaction):
+    """View available items in the shop"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get shop items
+    shop_items = await db.get_shop_items()
+
+    # Get user balance
+    balance = await db.get_balance(user_id, guild_id)
+
+    # Custom pokemoncard emoji
+    pokemoncard = "<:pokemoncard:1426317656163750008>"
+
+    # Create embed
+    embed = discord.Embed(
+        title=f"{pokemoncard} Pokemon Shop",
+        description=f"**Your Balance:** {balance} Pokedollars",
+        color=discord.Color.blue()
+    )
+
+    if shop_items:
+        for item in shop_items:
+            # Determine if user can afford
+            can_afford = balance >= item['price']
+            afford_text = "✅" if can_afford else "❌"
+
+            item_value = f"{item['description']}\n**Price:** {item['price']} 💰 {afford_text}"
+
+            embed.add_field(
+                name=f"{item['item_name']}",
+                value=item_value,
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name="Shop Empty",
+            value="No items available at the moment.",
+            inline=False
+        )
+
+    embed.set_footer(text="Use /buy [item_name] to purchase • Use /balance to check your Pokedollars")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name='buy', description='Purchase an item from the shop')
+@app_commands.describe(item='The name of the item you want to buy (e.g., Basic Pack)')
+async def buy(interaction: discord.Interaction, item: str):
+    """Purchase an item from the shop"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get shop items
+    shop_items = await db.get_shop_items()
+
+    # Find matching item (case-insensitive)
+    item_lower = item.lower()
+    matching_item = None
+    for shop_item in shop_items:
+        if shop_item['item_name'].lower() == item_lower:
+            matching_item = shop_item
+            break
+
+    if not matching_item:
+        await interaction.followup.send(f"❌ Item '{item}' not found in shop! Use `/shop` to see available items.")
+        return
+
+    # Check balance
+    balance = await db.get_balance(user_id, guild_id)
+
+    if balance < matching_item['price']:
+        shortage = matching_item['price'] - balance
+        await interaction.followup.send(
+            f"❌ Not enough Pokedollars! You need **{shortage}** more Pokedollars.\n"
+            f"**Your balance:** {balance} 💰\n**Item price:** {matching_item['price']} 💰"
+        )
+        return
+
+    # Attempt to spend currency
+    success = await db.spend_currency(user_id, guild_id, matching_item['price'])
+
+    if not success:
+        await interaction.followup.send("❌ Purchase failed. Please try again!")
+        return
+
+    # Handle different item types
+    if matching_item['item_type'] == 'pack':
+        # Add pack to user's inventory
+        await db.add_pack(user_id, guild_id, amount=1)
+
+        # Create success embed
+        pokemoncard = "<:pokemoncard:1426317656163750008>"
+        embed = discord.Embed(
+            title=f"{pokemoncard} Purchase Successful!",
+            description=f"You bought a **{matching_item['item_name']}**!",
+            color=discord.Color.green()
+        )
+
+        new_balance = await db.get_balance(user_id, guild_id)
+
+        embed.add_field(
+            name="Item",
+            value=matching_item['item_name'],
+            inline=True
+        )
+
+        embed.add_field(
+            name="Price Paid",
+            value=f"{matching_item['price']} 💰",
+            inline=True
+        )
+
+        embed.add_field(
+            name="New Balance",
+            value=f"{new_balance} 💰",
+            inline=True
+        )
+
+        embed.set_footer(text="Use /pack to open your pack!")
+
+        await interaction.followup.send(embed=embed)
+    else:
+        # Future item types can be handled here
+        await interaction.followup.send(f"✅ Purchased {matching_item['item_name']}!")
+
+
+@bot.tree.command(name='sell', description='Sell duplicate Pokemon for Pokedollars')
+async def sell(interaction: discord.Interaction):
+    """Sell duplicate Pokemon for currency"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response immediately to prevent timeout
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get duplicate Pokemon
+    duplicates = await db.get_duplicate_pokemon(user_id, guild_id)
+
+    if not duplicates:
+        await interaction.followup.send("❌ You don't have any duplicate Pokemon to sell! Catch more Pokemon first.")
+        return
+
+    # Create embed showing duplicates
+    embed = discord.Embed(
+        title="💰 Sell Duplicate Pokemon",
+        description="Select Pokemon below to sell for **10 Pokedollars** each.\n\n**Note:** You cannot sell your last copy of a Pokemon!",
+        color=discord.Color.gold()
+    )
+
+    # Show top duplicates
+    duplicate_list = []
+    for dup in duplicates[:10]:
+        duplicate_list.append(f"#{dup['pokemon_id']:03d} **{dup['pokemon_name']}** - You have **x{dup['count']}**")
+
+    embed.add_field(
+        name="Your Duplicates",
+        value='\n'.join(duplicate_list) if duplicate_list else "No duplicates",
+        inline=False
+    )
+
+    # Get all catches for user to allow selection
+    all_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
+
+    if not all_catches:
+        await interaction.followup.send("❌ No Pokemon available to sell!")
+        return
+
+    # Create dropdown with duplicates only (max 25 options)
+    options = []
+    duplicate_names = {d['pokemon_name'] for d in duplicates}
+    seen_names = set()
+
+    for catch in all_catches:
+        if catch['pokemon_name'] in duplicate_names and catch['pokemon_name'] not in seen_names:
+            seen_names.add(catch['pokemon_name'])
+            label = f"#{catch['pokemon_id']:03d} {catch['pokemon_name']}"
+            options.append(discord.SelectOption(label=label, value=catch['pokemon_name']))
+
+            if len(options) >= 25:
+                break
+
+    if not options:
+        await interaction.followup.send("❌ No duplicate Pokemon available to sell!")
+        return
+
+    # Create select menu
+    select = Select(
+        placeholder="Select a Pokemon to sell...",
+        options=options,
+        custom_id="sell_select"
+    )
+
+    async def sell_callback(select_interaction: discord.Interaction):
+        """Handle Pokemon sale"""
+        if select_interaction.user.id != user_id:
+            await select_interaction.response.send_message("❌ This is not your sale menu!", ephemeral=True)
+            return
+
+        selected_name = select.values[0]
+
+        # Find a duplicate catch to sell (not the first one caught)
+        user_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
+        catches_of_type = [c for c in user_catches if c['pokemon_name'] == selected_name]
+
+        if len(catches_of_type) < 2:
+            await select_interaction.response.send_message("❌ You can't sell your last copy of this Pokemon!", ephemeral=True)
+            return
+
+        # Sell the most recent catch (last in list)
+        catch_to_sell = catches_of_type[-1]
+
+        # Attempt to sell
+        sale_price = await db.sell_pokemon(user_id, guild_id, catch_to_sell['id'])
+
+        if sale_price is None:
+            await select_interaction.response.send_message("❌ Sale failed! Please try again.", ephemeral=True)
+            return
+
+        # Get new balance
+        new_balance = await db.get_balance(user_id, guild_id)
+
+        # Create success embed
+        success_embed = discord.Embed(
+            title="✅ Pokemon Sold!",
+            description=f"You sold **{selected_name}** for **{sale_price} Pokedollars**!",
+            color=discord.Color.green()
+        )
+
+        success_embed.add_field(
+            name="New Balance",
+            value=f"{new_balance} 💰",
+            inline=False
+        )
+
+        await select_interaction.response.send_message(embed=success_embed)
+
+    select.callback = sell_callback
+
+    # Create view with select
+    view = View(timeout=180)
+    view.add_item(select)
+
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='help', description='Show bot commands and how to use them')
 async def help_command(interaction: discord.Interaction):
     """Show bot commands"""
@@ -2173,6 +2527,30 @@ async def help_command(interaction: discord.Interaction):
     )
 
     embed.add_field(
+        name="/balance",
+        value="Check your Pokedollar balance",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/shop",
+        value="View available items and packs for purchase",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/buy [item]",
+        value="Purchase an item from the shop (e.g., /buy Basic Pack)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="/sell",
+        value="Sell duplicate Pokemon for Pokedollars",
+        inline=False
+    )
+
+    embed.add_field(
         name="/setup #channel",
         value="(Admin only) Configure which channel Pokemon spawn in",
         inline=False
@@ -2190,7 +2568,7 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
 
-    embed.set_footer(text="Season 1 Battlepass: Catch Pokemon to earn XP and unlock packs!")
+    embed.set_footer(text="Catch Pokemon to earn XP and Pokedollars! Use /shop to buy packs.")
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 

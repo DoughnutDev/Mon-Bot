@@ -179,10 +179,41 @@ async def setup_database():
                 )
             ''')
 
+            # User currency table - Pokedollars
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_currency (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    balance INTEGER DEFAULT 0,
+                    total_earned INTEGER DEFAULT 0,
+                    total_spent INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (user_id, guild_id)
+                )
+            ''')
+
+            # Shop items table - defines items available in shop
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS shop_items (
+                    id SERIAL PRIMARY KEY,
+                    item_type TEXT NOT NULL,
+                    item_name TEXT NOT NULL,
+                    description TEXT,
+                    price INTEGER NOT NULL,
+                    stock_unlimited BOOLEAN DEFAULT TRUE,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
             print("Season 1 rewards initialized", flush=True)
+
+            # Initialize shop items
+            print("Initializing shop items...", flush=True)
+            await _initialize_shop_items(conn)
+            print("Shop items initialized", flush=True)
 
             print("Database tables created successfully", flush=True)
 
@@ -756,6 +787,21 @@ async def _initialize_season1_rewards(conn):
         ''', season, level, reward_type, reward_value)
 
 
+async def _initialize_shop_items(conn):
+    """Initialize shop items"""
+    # Define shop items: packs and future items
+    shop_items = [
+        ('pack', 'Basic Pack', 'Contains 1-6 random Pokemon, rare chance for up to 10, and 0.01% shiny chance!', 100),
+    ]
+
+    for item_type, item_name, description, price in shop_items:
+        await conn.execute('''
+            INSERT INTO shop_items (item_type, item_name, description, price)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT DO NOTHING
+        ''', item_type, item_name, description, price)
+
+
 async def add_xp(user_id: int, guild_id: int, xp_amount: int = 10, season: int = 1):
     """Add XP to a user's battlepass and handle level ups"""
     if not pool:
@@ -1012,3 +1058,132 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
             }
 
         return None
+
+
+# Currency/Economy functions
+
+async def get_balance(user_id: int, guild_id: int) -> int:
+    """Get user's Pokedollar balance"""
+    if not pool:
+        return 0
+
+    async with pool.acquire() as conn:
+        balance = await conn.fetchval('''
+            SELECT balance FROM user_currency
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        return balance if balance is not None else 0
+
+
+async def add_currency(user_id: int, guild_id: int, amount: int) -> int:
+    """Add currency to user's balance. Returns new balance."""
+    if not pool:
+        return 0
+
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow('''
+            INSERT INTO user_currency (user_id, guild_id, balance, total_earned)
+            VALUES ($1, $2, $3, $3)
+            ON CONFLICT (user_id, guild_id)
+            DO UPDATE SET
+                balance = user_currency.balance + $3,
+                total_earned = user_currency.total_earned + $3,
+                last_updated = NOW()
+            RETURNING balance
+        ''', user_id, guild_id, amount)
+
+        return result['balance'] if result else 0
+
+
+async def spend_currency(user_id: int, guild_id: int, amount: int) -> bool:
+    """Spend currency. Returns True if successful, False if insufficient funds."""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        # Check if user has enough
+        balance = await conn.fetchval('''
+            SELECT balance FROM user_currency
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        if not balance or balance < amount:
+            return False
+
+        # Deduct amount
+        await conn.execute('''
+            UPDATE user_currency
+            SET balance = balance - $3,
+                total_spent = total_spent + $3,
+                last_updated = NOW()
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id, amount)
+
+        return True
+
+
+async def get_shop_items() -> List[Dict]:
+    """Get all active shop items"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT * FROM shop_items
+            WHERE is_active = TRUE
+            ORDER BY price ASC
+        ''')
+
+        return [dict(row) for row in rows]
+
+
+async def get_duplicate_pokemon(user_id: int, guild_id: int) -> List[Dict]:
+    """Get Pokemon that user has duplicates of (count > 1)"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                pokemon_name,
+                pokemon_id,
+                COUNT(*) as count,
+                MIN(id) as first_catch_id
+            FROM catches
+            WHERE user_id = $1 AND guild_id = $2
+            GROUP BY pokemon_name, pokemon_id
+            HAVING COUNT(*) > 1
+            ORDER BY count DESC, pokemon_name ASC
+        ''', user_id, guild_id)
+
+        return [dict(row) for row in rows]
+
+
+async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[int]:
+    """Sell a Pokemon. Returns sale price if successful, None if failed."""
+    if not pool:
+        return None
+
+    async with pool.acquire() as conn:
+        # Verify Pokemon exists and belongs to user
+        pokemon = await conn.fetchrow('''
+            SELECT user_id, guild_id, pokemon_id, pokemon_name FROM catches
+            WHERE id = $1
+        ''', catch_id)
+
+        if not pokemon or pokemon['user_id'] != user_id or pokemon['guild_id'] != guild_id:
+            return None
+
+        # Calculate sale price (base 10 Pokedollars, could be enhanced based on rarity)
+        sale_price = 10
+
+        # Delete the Pokemon
+        await conn.execute('''
+            DELETE FROM catches WHERE id = $1
+        ''', catch_id)
+
+        # Add currency
+        await add_currency(user_id, guild_id, sale_price)
+
+        return sale_price
