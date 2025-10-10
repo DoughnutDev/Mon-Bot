@@ -20,6 +20,10 @@ import os
 import asyncio
 import json
 from typing import Dict, List, Tuple
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # Define all pack configurations (matches database.py)
@@ -104,7 +108,7 @@ async def add_pack_config_column(conn: asyncpg.Connection):
         ALTER TABLE shop_items
         ADD COLUMN pack_config JSONB
     ''')
-    print("✓ Column added successfully")
+    print("Column added successfully")
 
 
 async def get_existing_shop_items(conn: asyncpg.Connection) -> List[Dict]:
@@ -124,7 +128,7 @@ async def update_shop_item_config(conn: asyncpg.Connection, item_id: int, item_n
         SET pack_config = $1
         WHERE id = $2
     ''', json.dumps(pack_config), item_id)
-    print(f"  ✓ Updated '{item_name}' with pack config")
+    print(f"  Updated '{item_name}' with pack config")
 
 
 async def insert_missing_shop_items(conn: asyncpg.Connection, existing_items: List[Dict]):
@@ -148,7 +152,7 @@ async def insert_missing_shop_items(conn: asyncpg.Connection, existing_items: Li
                     INSERT INTO shop_items (item_type, item_name, description, price, pack_config)
                     VALUES ($1, $2, $3, $4, $5)
                 ''', item_type, item_name, description, price, json.dumps(pack_config))
-                print(f"  ✓ Inserted missing item: '{item_name}'")
+                print(f"  Inserted missing item: '{item_name}'")
                 inserted_count += 1
 
     return inserted_count
@@ -166,7 +170,7 @@ async def verify_migration(conn: asyncpg.Connection) -> bool:
     ''')
 
     if null_count > 0:
-        print(f"  ✗ Warning: {null_count} shop items still have NULL pack_config")
+        print(f"  Warning: {null_count} shop items still have NULL pack_config")
         return False
 
     # Get all shop items and verify
@@ -176,10 +180,10 @@ async def verify_migration(conn: asyncpg.Connection) -> bool:
         ORDER BY price ASC
     ''')
 
-    print(f"\n✓ All {len(items)} shop items have pack_config set:")
+    print(f"\nAll {len(items)} shop items have pack_config set:")
     for item in items:
         config = json.loads(item['pack_config']) if isinstance(item['pack_config'], str) else item['pack_config']
-        print(f"  • {item['item_name']}: {config['min_pokemon']}-{config['max_pokemon']} Pokemon, "
+        print(f"  - {item['item_name']}: {config['min_pokemon']}-{config['max_pokemon']} Pokemon, "
               f"{config['shiny_chance']*100:.2f}% shiny, {config['legendary_chance']*100:.0f}% legendary")
 
     return True
@@ -190,7 +194,7 @@ async def migrate_database():
     database_url = os.getenv('DATABASE_URL')
 
     if not database_url:
-        print("❌ ERROR: DATABASE_URL environment variable not set")
+        print("ERROR: DATABASE_URL environment variable not set")
         print("\nPlease set it using:")
         print("  export DATABASE_URL='postgresql://user:password@host:port/database'")
         print("  # or on Windows:")
@@ -205,32 +209,32 @@ async def migrate_database():
         # Connect to database
         print("\n[1/6] Connecting to database...")
         conn = await asyncpg.connect(database_url)
-        print("✓ Connected successfully")
+        print("Connected successfully")
 
         # Check if table exists
         print("\n[2/6] Checking if shop_items table exists...")
         table_exists = await check_table_exists(conn)
         if not table_exists:
-            print("❌ ERROR: shop_items table does not exist!")
+            print("ERROR: shop_items table does not exist!")
             print("Please run the bot first to create all tables.")
             await conn.close()
             return False
-        print("✓ Table exists")
+        print("Table exists")
 
         # Check if column exists
         print("\n[3/6] Checking if pack_config column exists...")
         column_exists = await check_column_exists(conn)
 
         if column_exists:
-            print("✓ Column already exists")
+            print("Column already exists")
         else:
-            print("✗ Column does not exist")
+            print("Column does not exist")
             await add_pack_config_column(conn)
 
         # Get existing shop items
         print("\n[4/6] Retrieving existing shop items...")
         existing_items = await get_existing_shop_items(conn)
-        print(f"✓ Found {len(existing_items)} existing shop items")
+        print(f"Found {len(existing_items)} existing shop items")
 
         # Update pack configs for existing items
         print("\n[5/6] Updating pack configurations...")
@@ -241,17 +245,17 @@ async def migrate_database():
                 await update_shop_item_config(conn, item['id'], item['item_name'], pack_config)
                 updated_count += 1
             else:
-                print(f"  ⚠ Warning: No pack config found for '{item['item_name']}'")
+                print(f"  Warning: No pack config found for '{item['item_name']}'")
 
-        print(f"✓ Updated {updated_count} items")
+        print(f"Updated {updated_count} items")
 
         # Insert any missing shop items
         print("\n[5.5/6] Checking for missing shop items...")
         inserted = await insert_missing_shop_items(conn, existing_items)
         if inserted > 0:
-            print(f"✓ Inserted {inserted} missing items")
+            print(f"Inserted {inserted} missing items")
         else:
-            print("✓ All shop items already exist")
+            print("All shop items already exist")
 
         # Verify migration
         print("\n[6/6] Verifying migration...")
@@ -262,18 +266,18 @@ async def migrate_database():
 
         print("\n" + "=" * 60)
         if success:
-            print("✓ MIGRATION COMPLETED SUCCESSFULLY!")
+            print("MIGRATION COMPLETED SUCCESSFULLY!")
             print("=" * 60)
             print("\nYou can now restart your bot.")
             return True
         else:
-            print("⚠ MIGRATION COMPLETED WITH WARNINGS")
+            print("MIGRATION COMPLETED WITH WARNINGS")
             print("=" * 60)
             print("\nPlease review the warnings above.")
             return False
 
     except Exception as e:
-        print(f"\n❌ MIGRATION FAILED: {e}")
+        print(f"\nMIGRATION FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
