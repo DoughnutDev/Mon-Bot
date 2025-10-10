@@ -423,12 +423,12 @@ async def spawn_pokemon():
 @app_commands.default_permissions(administrator=True)
 async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     """Setup command for server admins to configure spawn channels"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks to prevent timeout
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     # Add spawn channel to database
     await db.set_spawn_channel(interaction.guild.id, channel.id)
@@ -453,12 +453,12 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
 @app_commands.default_permissions(administrator=True)
 async def clear_channels(interaction: discord.Interaction):
     """Clear all spawn channels for this server"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer(ephemeral=True)
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     try:
         # Get current spawn channels
@@ -1587,12 +1587,12 @@ class PokedexView(View):
 @app_commands.describe(member='The user whose Pokedex you want to view (optional)')
 async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
     """View your or another user's caught Pokemon"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     target = member or interaction.user
     user_id = target.id
@@ -1621,12 +1621,12 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
 @bot.tree.command(name='count', description='See how many of each Pokemon you\'ve caught')
 async def count(interaction: discord.Interaction):
     """Show how many of each Pokemon you've caught"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -1658,12 +1658,12 @@ async def count(interaction: discord.Interaction):
 @bot.tree.command(name='battlepass', description='View your Season 1 battlepass progress')
 async def battlepass(interaction: discord.Interaction):
     """View battlepass progress"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -1729,12 +1729,12 @@ async def battlepass(interaction: discord.Interaction):
 @bot.tree.command(name='pack', description='Open a Pokemon pack from your inventory')
 async def pack(interaction: discord.Interaction):
     """Open a Pokemon pack"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks to prevent timeout
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2043,12 +2043,12 @@ async def trade(interaction: discord.Interaction, user: discord.Member):
 @bot.tree.command(name='leaderboard', description='View server leaderboards')
 async def leaderboard(interaction: discord.Interaction):
     """Show server leaderboards with different categories"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     # Create interactive view
     view = LeaderboardView(interaction.guild)
@@ -2154,12 +2154,12 @@ async def wiki(interaction: discord.Interaction, pokemon: str = None):
 @bot.tree.command(name='quests', description='View your daily quests and progress')
 async def quests(interaction: discord.Interaction):
     """View daily quests for battlepass XP"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2240,12 +2240,12 @@ async def quests(interaction: discord.Interaction):
 @bot.tree.command(name='balance', description='Check your Pokedollar balance')
 async def balance(interaction: discord.Interaction):
     """Check Pokedollar balance"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2539,12 +2539,12 @@ class ShopView(View):
 @bot.tree.command(name='shop', description='View the Pokemon shop')
 async def shop(interaction: discord.Interaction):
     """View available items in the shop with interactive GUI"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks to prevent timeout
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2570,12 +2570,12 @@ async def shop(interaction: discord.Interaction):
 @app_commands.describe(item='The name of the item you want to buy (e.g., Basic Pack)')
 async def buy(interaction: discord.Interaction, item: str):
     """Purchase an item from the shop"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout
+    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2659,12 +2659,12 @@ async def buy(interaction: discord.Interaction, item: str):
 @bot.tree.command(name='sell', description='Sell duplicate Pokemon for Pokedollars')
 async def sell(interaction: discord.Interaction):
     """Sell duplicate Pokemon for currency"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response immediately to prevent timeout (ephemeral for privacy)
+    # Defer IMMEDIATELY before any checks (ephemeral for privacy)
     await interaction.response.defer(ephemeral=True)
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
