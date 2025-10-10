@@ -205,7 +205,7 @@ async def setup_database():
                 CREATE TABLE IF NOT EXISTS shop_items (
                     id SERIAL PRIMARY KEY,
                     item_type TEXT NOT NULL,
-                    item_name TEXT NOT NULL,
+                    item_name TEXT NOT NULL UNIQUE,
                     description TEXT,
                     price INTEGER NOT NULL,
                     stock_unlimited BOOLEAN DEFAULT TRUE,
