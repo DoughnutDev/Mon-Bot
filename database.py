@@ -1229,6 +1229,27 @@ async def get_duplicate_pokemon(user_id: int, guild_id: int) -> List[Dict]:
         return [dict(row) for row in rows]
 
 
+def calculate_sell_price(pokemon_id: int) -> int:
+    """Calculate sell price based on Pokemon rarity"""
+    # Gen 1 legendaries: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
+    legendary_ids = [144, 145, 146, 150, 151]
+
+    # Starter Pokemon and their evolutions
+    starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    # Pseudo-legendaries and rare Pokemon
+    rare_ids = [3, 6, 9, 59, 65, 68, 76, 94, 103, 112, 115, 130, 131, 142, 143]
+
+    if pokemon_id in legendary_ids:
+        return 100  # Legendaries worth 100
+    elif pokemon_id in rare_ids:
+        return 50   # Rare Pokemon worth 50
+    elif pokemon_id in starter_ids:
+        return 30   # Starters worth 30
+    else:
+        return 10   # Common Pokemon worth 10
+
+
 async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[int]:
     """Sell a Pokemon. Returns sale price if successful, None if failed."""
     if not pool:
@@ -1244,8 +1265,8 @@ async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[i
         if not pokemon or pokemon['user_id'] != user_id or pokemon['guild_id'] != guild_id:
             return None
 
-        # Calculate sale price (base 10 Pokedollars, could be enhanced based on rarity)
-        sale_price = 10
+        # Calculate sale price based on rarity
+        sale_price = calculate_sell_price(pokemon['pokemon_id'])
 
         # Delete the Pokemon
         await conn.execute('''

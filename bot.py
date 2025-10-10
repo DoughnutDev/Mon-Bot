@@ -1523,7 +1523,7 @@ class PokedexView(View):
 
         if page_pokemon:
             # Create table header
-            header = " #    Name          Lvl  Qty\n" + "─" * 28
+            header = " #    Name          Lvl  Qty  Value\n" + "─" * 36
 
             # Create table rows
             pokemon_rows = [header]
@@ -1531,9 +1531,11 @@ class PokedexView(View):
                 pokedex_num = f"{poke['pokemon_id']:03d}"
                 name = poke['pokemon_name'][:12].ljust(12)  # Limit name to 12 chars
                 level = f"{poke.get('level', 1):<3}"
-                count = f"x{poke['count']}"
+                count = f"x{poke['count']:<2}"
+                sell_value = db.calculate_sell_price(poke['pokemon_id'])
+                value = f"{sell_value}💰"
 
-                row = f"{pokedex_num}  {name}  {level}  {count}"
+                row = f"{pokedex_num}  {name}  {level}  {count}  {value}"
                 pokemon_rows.append(row)
 
             embed.add_field(
@@ -1839,25 +1841,25 @@ async def pack(interaction: discord.Interaction):
                     pokemon_types=pokemon['types']
                 )
 
-    # Handle Master Collection guarantee
-    if pack_config.get('guaranteed_shiny_or_legendaries'):
-        min_legendaries = pack_config.get('guaranteed_legendary_count', 3)
-        if not shiny_caught and legendary_caught < min_legendaries:
-            # Add more legendaries to meet guarantee
-            while legendary_caught < min_legendaries:
-                pokemon_id = random.choice(legendary_ids)
-                pokemon = await fetch_pokemon(session, pokemon_id)
-                if pokemon:
-                    pokemon['is_shiny'] = False
-                    pokemon_list.append(pokemon)
-                    legendary_caught += 1
-                    await db.add_catch(
-                        user_id=user_id,
-                        guild_id=guild_id,
-                        pokemon_name=pokemon['name'],
-                        pokemon_id=pokemon['id'],
-                        pokemon_types=pokemon['types']
-                    )
+        # Handle Master Collection guarantee
+        if pack_config.get('guaranteed_shiny_or_legendaries'):
+            min_legendaries = pack_config.get('guaranteed_legendary_count', 3)
+            if not shiny_caught and legendary_caught < min_legendaries:
+                # Add more legendaries to meet guarantee
+                while legendary_caught < min_legendaries:
+                    pokemon_id = random.choice(legendary_ids)
+                    pokemon = await fetch_pokemon(session, pokemon_id)
+                    if pokemon:
+                        pokemon['is_shiny'] = False
+                        pokemon_list.append(pokemon)
+                        legendary_caught += 1
+                        await db.add_catch(
+                            user_id=user_id,
+                            guild_id=guild_id,
+                            pokemon_name=pokemon['name'],
+                            pokemon_id=pokemon['id'],
+                            pokemon_types=pokemon['types']
+                        )
 
     if not pokemon_list:
         await interaction.followup.send("Error opening pack. Please try again!")
@@ -2441,6 +2443,8 @@ class ShopView(View):
             self.update_buttons()
             embed = self.create_embed()
             await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("⬅️ You're already on the first page!", ephemeral=True)
 
     async def next_page(self, interaction: discord.Interaction):
         """Go to next page"""
@@ -2453,6 +2457,8 @@ class ShopView(View):
             self.update_buttons()
             embed = self.create_embed()
             await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("➡️ You're already on the last page!", ephemeral=True)
 
     async def buy_item(self, interaction: discord.Interaction):
         """Purchase the current item"""
@@ -2657,8 +2663,8 @@ async def sell(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
-    # Defer the response immediately to prevent timeout
-    await interaction.response.defer()
+    # Defer the response immediately to prevent timeout (ephemeral for privacy)
+    await interaction.response.defer(ephemeral=True)
 
     user_id = interaction.user.id
     guild_id = interaction.guild.id
@@ -2673,14 +2679,15 @@ async def sell(interaction: discord.Interaction):
     # Create embed showing duplicates
     embed = discord.Embed(
         title="💰 Sell Duplicate Pokemon",
-        description="Select Pokemon below to sell for **10 Pokedollars** each.\n\n**Note:** You cannot sell your last copy of a Pokemon!",
+        description="Select Pokemon below to sell. Prices vary by rarity!\n\n**Note:** You cannot sell your last copy of a Pokemon!",
         color=discord.Color.gold()
     )
 
-    # Show top duplicates
+    # Show top duplicates with sell values
     duplicate_list = []
     for dup in duplicates[:10]:
-        duplicate_list.append(f"#{dup['pokemon_id']:03d} **{dup['pokemon_name']}** - You have **x{dup['count']}**")
+        sell_price = db.calculate_sell_price(dup['pokemon_id'])
+        duplicate_list.append(f"#{dup['pokemon_id']:03d} **{dup['pokemon_name']}** - x{dup['count']} ({sell_price}💰 each)")
 
     embed.add_field(
         name="Your Duplicates",
@@ -2704,7 +2711,9 @@ async def sell(interaction: discord.Interaction):
         if catch['pokemon_name'] in duplicate_names and catch['pokemon_name'] not in seen_names:
             seen_names.add(catch['pokemon_name'])
             label = f"#{catch['pokemon_id']:03d} {catch['pokemon_name']}"
-            options.append(discord.SelectOption(label=label, value=catch['pokemon_name']))
+            sell_price = db.calculate_sell_price(catch['pokemon_id'])
+            description = f"Sell for {sell_price}💰"
+            options.append(discord.SelectOption(label=label, value=catch['pokemon_name'], description=description))
 
             if len(options) >= 25:
                 break
@@ -2762,7 +2771,7 @@ async def sell(interaction: discord.Interaction):
             inline=False
         )
 
-        await select_interaction.response.send_message(embed=success_embed)
+        await select_interaction.response.send_message(embed=success_embed, ephemeral=True)
 
     select.callback = sell_callback
 
