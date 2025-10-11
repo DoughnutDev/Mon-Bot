@@ -849,7 +849,10 @@ class GymBattleView(View):
         await self.create_battle_buttons()
 
         embed = self.create_battle_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+
+        # Delete the selection message and send new battle message
+        await interaction.delete_original_response()
+        await interaction.followup.send(embed=embed, view=self)
 
     async def load_gym_pokemon(self):
         """Load current gym leader Pokemon"""
@@ -902,6 +905,138 @@ class GymBattleView(View):
             )
             button.callback = self.create_move_callback(i)
             self.add_item(button)
+
+        # Add Switch Pokemon button if user has more than one Pokemon and has others alive
+        alive_pokemon = [p for i, p in enumerate(self.user_team) if p['current_hp'] > 0 and i != self.user_pokemon_index]
+        if len(alive_pokemon) > 0:
+            switch_button = Button(
+                label="🔄 Switch Pokemon",
+                style=discord.ButtonStyle.secondary,
+                custom_id="switch_pokemon",
+                row=2
+            )
+            switch_button.callback = self.switch_pokemon_callback
+            self.add_item(switch_button)
+
+    def switch_pokemon_callback(self):
+        """Create callback for switch button"""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                return
+
+            # Show Pokemon selection dropdown
+            alive_pokemon = [p for i, p in enumerate(self.user_team) if p['current_hp'] > 0 and i != self.user_pokemon_index]
+
+            if not alive_pokemon:
+                await interaction.response.send_message("❌ No other Pokemon available to switch!", ephemeral=True)
+                return
+
+            # Create dropdown with alive Pokemon
+            switch_select = Select(
+                placeholder="Choose a Pokemon to switch to...",
+                min_values=1,
+                max_values=1
+            )
+
+            for i, pokemon in enumerate(self.user_team):
+                if pokemon['current_hp'] > 0 and i != self.user_pokemon_index:
+                    hp_percent = int((pokemon['current_hp'] / pokemon['max_hp']) * 100)
+                    switch_select.add_option(
+                        label=f"{pokemon['pokemon_name']} (Lv.{pokemon['level']})",
+                        description=f"HP: {pokemon['current_hp']}/{pokemon['max_hp']} ({hp_percent}%)",
+                        value=str(i)
+                    )
+
+            async def switch_selected(select_interaction: discord.Interaction):
+                if select_interaction.user.id != self.user.id:
+                    await select_interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                    return
+
+                await select_interaction.response.defer()
+
+                new_index = int(switch_select.values[0])
+
+                # Switch to new Pokemon
+                self.user_pokemon_index = new_index
+                self.user_choice = self.user_team[new_index]
+                self.user_max_hp = self.user_choice['max_hp']
+                self.user_current_hp = self.user_choice['current_hp']
+
+                # Reset stat stages and status for switched Pokemon
+                self.user_stat_stages = {
+                    'attack': 0, 'defense': 0, 'special-attack': 0,
+                    'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                }
+                self.user_status = None
+                self.user_status_turns = 0
+
+                # Execute gym leader's turn (switching costs a turn)
+                self.turn_count += 1
+                self.battle_log.append(f"**Turn {self.turn_count}:**")
+                self.battle_log.append(f"You switched to **{self.user_choice['pokemon_name']}**!")
+
+                # Gym leader attacks
+                gym_move = random.choice(self.gym_current_pokemon['moves'])
+
+                if gym_move['damage_class'] == 'status':
+                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**!")
+                    status_msg = self.execute_status_move(gym_move, is_user_move=False)
+                    if status_msg:
+                        self.battle_log.append(status_msg)
+                else:
+                    gym_damage, gym_crit, gym_hit = await self.calculate_damage(
+                        gym_move,
+                        self.gym_current_pokemon,
+                        self.user_choice,
+                        self.gym_stat_stages,
+                        self.gym_status,
+                        self.user_stat_stages
+                    )
+
+                    if gym_hit:
+                        self.user_current_hp -= gym_damage
+                        self.user_team[self.user_pokemon_index]['current_hp'] = self.user_current_hp
+                        crit_text = " **Critical hit!**" if gym_crit else ""
+                        self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+                    else:
+                        self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
+
+                # Check if switched Pokemon fainted
+                if self.user_current_hp <= 0:
+                    self.user_current_hp = 0
+                    self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
+
+                    # Check if user has more Pokemon
+                    if self.user_pokemon_index < len(self.user_team) - 1:
+                        # Find next alive Pokemon
+                        for i in range(len(self.user_team)):
+                            if self.user_team[i]['current_hp'] > 0:
+                                self.user_pokemon_index = i
+                                self.user_choice = self.user_team[i]
+                                self.user_max_hp = self.user_choice['max_hp']
+                                self.user_current_hp = self.user_choice['current_hp']
+                                self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                                break
+                    else:
+                        # User is out of Pokemon
+                        await self.handle_defeat(select_interaction)
+                        return
+
+                # Update UI
+                self.clear_items()
+                await self.create_battle_buttons()
+                embed = self.create_battle_embed()
+                await select_interaction.edit_original_response(embed=embed, view=self)
+
+            switch_select.callback = switch_selected
+
+            switch_view = View(timeout=60)
+            switch_view.add_item(switch_select)
+
+            await interaction.response.send_message("Choose a Pokemon to switch to:", view=switch_view, ephemeral=True)
+
+        return callback
 
     def create_move_callback(self, move_index: int):
         """Create callback for move button"""
