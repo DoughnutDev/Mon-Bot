@@ -3209,6 +3209,7 @@ async def pack(interaction: discord.Interaction):
         return
 
     # Show pack selection if user has multiple packs
+    import json
     if len(user_packs) == 1:
         # Only one pack, open it directly
         pack_to_open = user_packs[0]
@@ -3216,8 +3217,16 @@ async def pack(interaction: discord.Interaction):
         # Create selection menu
         options = []
         for i, pack in enumerate(user_packs[:25]):  # Max 25 options
-            import json
-            config = json.loads(pack['pack_config']) if isinstance(pack['pack_config'], str) else pack['pack_config']
+            # Ensure pack_config is parsed as dict
+            if isinstance(pack['pack_config'], str):
+                try:
+                    config = json.loads(pack['pack_config'])
+                except (json.JSONDecodeError, TypeError):
+                    # Skip packs with invalid config
+                    continue
+            else:
+                config = pack['pack_config']
+
             label = f"{pack['pack_name']} ({config['min_pokemon']}-{config['max_pokemon']} Pokemon)"
             options.append(discord.SelectOption(label=label, value=str(pack['id']), description=f"{config['shiny_chance']*100}% shiny chance"))
 
@@ -3227,8 +3236,6 @@ async def pack(interaction: discord.Interaction):
         pack_to_open = user_packs[0]
 
     # Open the pack
-    import json
-
     # Use the pack (removes it from inventory)
     pack_data = await db.use_pack(user_id, guild_id, pack_to_open['id'])
 
@@ -3237,7 +3244,15 @@ async def pack(interaction: discord.Interaction):
         return
 
     # Parse pack config from the returned pack_data
-    pack_config = json.loads(pack_data['pack_config']) if isinstance(pack_data['pack_config'], str) else pack_data['pack_config']
+    try:
+        if isinstance(pack_data['pack_config'], str):
+            pack_config = json.loads(pack_data['pack_config'])
+        else:
+            pack_config = pack_data['pack_config']
+    except (json.JSONDecodeError, TypeError, KeyError) as e:
+        print(f"[ERROR] Failed to parse pack config: {e}")
+        await interaction.followup.send("Error opening pack - invalid pack configuration!")
+        return
 
     # Determine pack size based on config
     min_poke = pack_config['min_pokemon']
