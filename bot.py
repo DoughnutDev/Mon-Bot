@@ -923,20 +923,20 @@ class GymBattleView(View):
                 else:
                     # Damaging move
                     user_damage, user_crit, user_hit = await self.calculate_damage(
-                user_move,
-                self.user_choice,
-                self.gym_current_pokemon,
-                self.user_stat_stages,
-                self.user_status,
-                self.gym_stat_stages
-            )
+                        user_move,
+                        self.user_choice,
+                        self.gym_current_pokemon,
+                        self.user_stat_stages,
+                        self.user_status,
+                        self.gym_stat_stages
+                    )
 
-            if user_hit:
-                self.gym_current_hp -= user_damage
-                crit_text = " **Critical hit!**" if user_crit else ""
-                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
-            else:
-                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
+                    if user_hit:
+                        self.gym_current_hp -= user_damage
+                        crit_text = " **Critical hit!**" if user_crit else ""
+                        self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
+                    else:
+                        self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
 
             # Check if gym Pokemon fainted
             if self.gym_current_hp <= 0:
@@ -954,21 +954,40 @@ class GymBattleView(View):
                     return
             else:
                 # Gym Pokemon's turn
-                gym_damage, gym_crit, gym_hit = await self.calculate_damage(
-                    gym_move,
-                    self.gym_current_pokemon,
-                    self.user_choice,
-                    self.gym_stat_stages,
+                # Check if gym Pokemon is immobilized
+                is_immobilized, immobilize_msg = self.check_immobilized(
+                    self.gym_current_pokemon['pokemon_name'],
                     self.gym_status,
-                    self.user_stat_stages
+                    self.gym_status_turns
                 )
 
-                if gym_hit:
-                    self.user_current_hp -= gym_damage
-                    crit_text = " **Critical hit!**" if gym_crit else ""
-                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+                if is_immobilized:
+                    self.battle_log.append(immobilize_msg)
                 else:
-                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
+                    # Execute gym Pokemon's move
+                    if gym_move['damage_class'] == 'status':
+                        # Status move
+                        self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**!")
+                        status_msg = self.execute_status_move(gym_move, is_user_move=False)
+                        if status_msg:
+                            self.battle_log.append(status_msg)
+                    else:
+                        # Damaging move
+                        gym_damage, gym_crit, gym_hit = await self.calculate_damage(
+                            gym_move,
+                            self.gym_current_pokemon,
+                            self.user_choice,
+                            self.gym_stat_stages,
+                            self.gym_status,
+                            self.user_stat_stages
+                        )
+
+                        if gym_hit:
+                            self.user_current_hp -= gym_damage
+                            crit_text = " **Critical hit!**" if gym_crit else ""
+                            self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+                        else:
+                            self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
 
                 # Check if user Pokemon fainted
                 if self.user_current_hp <= 0:
@@ -977,21 +996,40 @@ class GymBattleView(View):
                     return
         else:
             # Gym Pokemon goes first
-            gym_damage, gym_crit, gym_hit = await self.calculate_damage(
-                gym_move,
-                self.gym_current_pokemon,
-                self.user_choice,
-                self.gym_stat_stages,
+            # Check if gym Pokemon is immobilized
+            is_immobilized, immobilize_msg = self.check_immobilized(
+                self.gym_current_pokemon['pokemon_name'],
                 self.gym_status,
-                self.user_stat_stages
+                self.gym_status_turns
             )
 
-            if gym_hit:
-                self.user_current_hp -= gym_damage
-                crit_text = " **Critical hit!**" if gym_crit else ""
-                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+            if is_immobilized:
+                self.battle_log.append(immobilize_msg)
             else:
-                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
+                # Execute gym Pokemon's move
+                if gym_move['damage_class'] == 'status':
+                    # Status move
+                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**!")
+                    status_msg = self.execute_status_move(gym_move, is_user_move=False)
+                    if status_msg:
+                        self.battle_log.append(status_msg)
+                else:
+                    # Damaging move
+                    gym_damage, gym_crit, gym_hit = await self.calculate_damage(
+                        gym_move,
+                        self.gym_current_pokemon,
+                        self.user_choice,
+                        self.gym_stat_stages,
+                        self.gym_status,
+                        self.user_stat_stages
+                    )
+
+                    if gym_hit:
+                        self.user_current_hp -= gym_damage
+                        crit_text = " **Critical hit!**" if gym_crit else ""
+                        self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+                    else:
+                        self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
 
             # Check if user Pokemon fainted
             if self.user_current_hp <= 0:
@@ -1000,21 +1038,40 @@ class GymBattleView(View):
                 return
 
             # User's turn
-            user_damage, user_crit, user_hit = await self.calculate_damage(
-                user_move,
-                self.user_choice,
-                self.gym_current_pokemon,
-                self.user_stat_stages,
+            # Check if user is immobilized
+            is_immobilized, immobilize_msg = self.check_immobilized(
+                self.user_choice['pokemon_name'],
                 self.user_status,
-                self.gym_stat_stages
+                self.user_status_turns
             )
 
-            if user_hit:
-                self.gym_current_hp -= user_damage
-                crit_text = " **Critical hit!**" if user_crit else ""
-                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
+            if is_immobilized:
+                self.battle_log.append(immobilize_msg)
             else:
-                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
+                # Execute user's move
+                if user_move['damage_class'] == 'status':
+                    # Status move
+                    self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**!")
+                    status_msg = self.execute_status_move(user_move, is_user_move=True)
+                    if status_msg:
+                        self.battle_log.append(status_msg)
+                else:
+                    # Damaging move
+                    user_damage, user_crit, user_hit = await self.calculate_damage(
+                        user_move,
+                        self.user_choice,
+                        self.gym_current_pokemon,
+                        self.user_stat_stages,
+                        self.user_status,
+                        self.gym_stat_stages
+                    )
+
+                    if user_hit:
+                        self.gym_current_hp -= user_damage
+                        crit_text = " **Critical hit!**" if user_crit else ""
+                        self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
+                    else:
+                        self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
 
             # Check if gym Pokemon fainted
             if self.gym_current_hp <= 0:
@@ -1030,6 +1087,31 @@ class GymBattleView(View):
                     # User won!
                     await self.handle_victory(interaction)
                     return
+
+        # Apply end-of-turn status effects
+        end_turn_messages = self.apply_end_of_turn_effects()
+        for msg in end_turn_messages:
+            self.battle_log.append(msg)
+
+        # Check if either Pokemon fainted from status damage
+        if self.user_current_hp <= 0:
+            self.user_current_hp = 0
+            await self.handle_defeat(interaction)
+            return
+
+        if self.gym_current_hp <= 0:
+            self.gym_current_hp = 0
+            self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** fainted!")
+
+            # Check if there are more gym Pokemon
+            if self.gym_pokemon_index < len(self.gym_data['pokemon']) - 1:
+                self.gym_pokemon_index += 1
+                await self.load_gym_pokemon()
+                self.battle_log.append(f"**{self.gym_data['name']}** sent out **{self.gym_current_pokemon['pokemon_name']}**!")
+            else:
+                # User won!
+                await self.handle_victory(interaction)
+                return
 
         # Update embed
         embed = self.create_battle_embed()
@@ -1299,9 +1381,22 @@ class GymBattleView(View):
         user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
         user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
 
+        # Add status condition indicator
+        user_status_text = ""
+        if self.user_status:
+            status_data = pkmn.get_status_condition_effect(self.user_status)
+            user_status_text = f"\n**Status:** {status_data['emoji']} {status_data['name']}"
+
+        # Add stat stages indicator (only show non-zero stages)
+        user_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.user_stat_stages.items() if stage != 0]
+        if active_stages:
+            user_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
+
         embed.add_field(
             name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']})",
-            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
+            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}{user_status_text}{user_stages_text}",
             inline=True
         )
 
@@ -1309,12 +1404,25 @@ class GymBattleView(View):
         gym_hp_percent = (self.gym_current_hp / self.gym_max_hp) * 100
         gym_hp_bar = pkmn.create_hp_bar(gym_hp_percent)
 
+        # Add status condition indicator
+        gym_status_text = ""
+        if self.gym_status:
+            status_data = pkmn.get_status_condition_effect(self.gym_status)
+            gym_status_text = f"\n**Status:** {status_data['emoji']} {status_data['name']}"
+
+        # Add stat stages indicator
+        gym_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.gym_stat_stages.items() if stage != 0]
+        if active_stages:
+            gym_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
+
         gym_info = f"{self.gym_data['name']}'s {self.gym_current_pokemon['pokemon_name']} (Lv.{self.gym_current_pokemon['level']})"
         gym_remaining = f"\n**Remaining:** {len(self.gym_data['pokemon']) - self.gym_pokemon_index}/{len(self.gym_data['pokemon'])} Pokemon"
 
         embed.add_field(
             name=gym_info,
-            value=f"{gym_hp_bar}\nHP: {self.gym_current_hp}/{self.gym_max_hp}{gym_remaining}",
+            value=f"{gym_hp_bar}\nHP: {self.gym_current_hp}/{self.gym_max_hp}{gym_status_text}{gym_stages_text}{gym_remaining}",
             inline=True
         )
 
