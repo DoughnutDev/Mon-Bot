@@ -4566,7 +4566,7 @@ async def sell(interaction: discord.Interaction):
     # Create embed showing duplicates
     embed = discord.Embed(
         title="💰 Sell Duplicate Pokemon",
-        description="Select Pokemon below to sell. Prices vary by rarity!\n\n**Note:** You cannot sell your last copy of a Pokemon!",
+        description="Select a Pokemon to sell one copy, or use **Sell All Duplicates** to sell all extras at once!\n\n**Note:** You cannot sell your last copy of a Pokemon!",
         color=discord.Color.gold()
     )
 
@@ -4617,7 +4617,7 @@ async def sell(interaction: discord.Interaction):
     )
 
     async def sell_callback(select_interaction: discord.Interaction):
-        """Handle Pokemon sale"""
+        """Handle selling one Pokemon"""
         if select_interaction.user.id != user_id:
             await select_interaction.response.send_message("❌ This is not your sale menu!", ephemeral=True)
             return
@@ -4692,11 +4692,125 @@ async def sell(interaction: discord.Interaction):
 
         await select_interaction.response.send_message(embed=success_embed, ephemeral=True)
 
+    async def sell_all_dupes_callback(button_interaction: discord.Interaction):
+        """Handle selling all duplicates of the selected Pokemon"""
+        if button_interaction.user.id != user_id:
+            await button_interaction.response.send_message("❌ This is not your sale menu!", ephemeral=True)
+            return
+
+        # Check if a Pokemon was selected
+        if not select.values:
+            await button_interaction.response.send_message("❌ Please select a Pokemon first!", ephemeral=True)
+            return
+
+        selected_name = select.values[0]
+
+        # Find all duplicates to sell (keep the first one)
+        user_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
+        catches_of_type = [c for c in user_catches if c['pokemon_name'] == selected_name]
+
+        if len(catches_of_type) < 2:
+            await button_interaction.response.send_message("❌ You can't sell your last copy of this Pokemon!", ephemeral=True)
+            return
+
+        # Defer response since this might take a while
+        await button_interaction.response.defer(ephemeral=True)
+
+        # Sell all but the first one
+        catches_to_sell = catches_of_type[1:]  # Keep first, sell rest
+        total_earned = 0
+        sold_count = 0
+
+        for catch in catches_to_sell:
+            sale_price = await db.sell_pokemon(user_id, guild_id, catch['id'])
+            if sale_price is not None:
+                total_earned += sale_price
+                sold_count += 1
+
+        if sold_count == 0:
+            await button_interaction.followup.send("❌ Sale failed! Please try again.", ephemeral=True)
+            return
+
+        # Get new balance
+        new_balance = await db.get_balance(user_id, guild_id)
+
+        # Update quest progress for selling Pokemon and earning Pokedollars
+        sell_quest_result = None
+        for _ in range(sold_count):
+            result = await db.update_quest_progress(user_id, guild_id, 'sell_pokemon')
+            if result:
+                if not sell_quest_result:
+                    sell_quest_result = result
+                else:
+                    sell_quest_result['total_currency'] += result.get('total_currency', 0)
+                    if result.get('completed_quests'):
+                        sell_quest_result['completed_quests'].extend(result['completed_quests'])
+
+        earn_quest_result = await db.update_quest_progress(user_id, guild_id, 'earn_pokedollars', increment=total_earned)
+
+        # Combine quest results and award currency
+        total_quest_currency = 0
+        if sell_quest_result and sell_quest_result.get('total_currency', 0) > 0:
+            total_quest_currency += sell_quest_result['total_currency']
+        if earn_quest_result and earn_quest_result.get('total_currency', 0) > 0:
+            total_quest_currency += earn_quest_result['total_currency']
+
+        # Award quest currency if any
+        if total_quest_currency > 0:
+            await db.add_currency(user_id, guild_id, total_quest_currency)
+
+        # Create success embed
+        success_embed = discord.Embed(
+            title="✅ All Duplicates Sold!",
+            description=f"You sold **{sold_count}x {selected_name}** for **₽{total_earned:,}**!",
+            color=discord.Color.green()
+        )
+
+        success_embed.add_field(
+            name="New Balance",
+            value=f"₽{new_balance:,}",
+            inline=False
+        )
+
+        # Add quest completion notification if any
+        if total_quest_currency > 0:
+            quest_text = []
+            if sell_quest_result and sell_quest_result.get('completed_quests'):
+                # Deduplicate quest completions
+                seen_quests = set()
+                for q in sell_quest_result['completed_quests']:
+                    quest_key = q['description']
+                    if quest_key not in seen_quests:
+                        seen_quests.add(quest_key)
+                        quest_text.append(f"✅ {q['description']} (+₽{q['reward']})")
+            if earn_quest_result and earn_quest_result.get('completed_quests'):
+                for q in earn_quest_result['completed_quests']:
+                    quest_text.append(f"✅ {q['description']} (+₽{q['reward']})")
+
+            if quest_text:
+                success_embed.add_field(
+                    name="🎯 Quests Completed!",
+                    value='\n'.join(quest_text),
+                    inline=False
+                )
+
+        await button_interaction.followup.send(embed=success_embed, ephemeral=True)
+
     select.callback = sell_callback
 
-    # Create view with select
+    # Create "Sell All Dupes" button
+    sell_all_button = Button(
+        label="Sell All Duplicates",
+        style=discord.ButtonStyle.danger,
+        emoji="💰",
+        custom_id="sell_all_dupes"
+    )
+    sell_all_button.callback = sell_all_dupes_callback
+
+    # Create view with select and button
     view = View(timeout=180)
     view.add_item(select)
+    view.add_item(sell_all_button)
 
     await interaction.followup.send(embed=embed, view=view)
 
