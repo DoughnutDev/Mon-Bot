@@ -388,24 +388,34 @@ async def on_message(message):
                             await interaction.response.send_message("❌ This trainer battle has expired!", ephemeral=True)
                             return
 
+                        # Defer immediately to prevent timeout
                         await interaction.response.defer()
 
-                        # Get user's Pokemon for battle
+                        battle_data = active_trainer_battles[self.challenger_id]
+
+                        # Get user's Pokemon for battle (deduplicated by species)
                         user_pokemon = await db.get_user_pokemon_for_trade(self.challenger_id, interaction.guild.id)
 
                         if not user_pokemon:
                             await interaction.followup.send("❌ You don't have any Pokemon to battle with!", ephemeral=True)
                             return
 
-                        # Get levels
-                        pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
+                        # Deduplicate by species to avoid querying duplicate levels
+                        seen_species = {}
+                        for pokemon in user_pokemon:
+                            species_id = pokemon['pokemon_id']
+                            if species_id not in seen_species:
+                                seen_species[species_id] = pokemon
+
+                        unique_pokemon = list(seen_species.values())
+
+                        # Get levels only for unique species (faster)
+                        pokemon_ids = [p['pokemon_id'] for p in unique_pokemon]
                         level_dict = await db.get_multiple_species_levels(self.challenger_id, interaction.guild.id, pokemon_ids)
 
                         # Add levels and sort
-                        pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
+                        pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in unique_pokemon]
                         pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
-
-                        battle_data = active_trainer_battles[self.challenger_id]
 
                         # Create trainer battle view
                         trainer_battle_view = TrainerBattleView(
@@ -454,6 +464,8 @@ async def on_message(message):
                         # Disable both buttons
                         self.fight_button.disabled = True
                         self.flee_button.disabled = True
+
+                        # Update the message with the flee embed
                         await interaction.response.edit_message(embed=flee_embed, view=self)
 
                 view = TrainerChallengeView(user_id)
