@@ -4806,108 +4806,48 @@ async def help_command(interaction: discord.Interaction):
     )
 
     embed.add_field(
-        name="Catching",
-        value="Type `ball` when a Pokemon spawns to catch it! (+10 XP)",
+        name="🎯 Catching Pokemon",
+        value="Type `ball` when a Pokemon spawns to catch it!\n• 25% chance for a trainer battle\n• Win to claim the Pokemon! (+10 XP)",
         inline=False
     )
 
     embed.add_field(
-        name="/battlepass",
-        value="View your Season 1 battlepass progress and rewards",
+        name="📊 Progress & Stats",
+        value="**/battlepass** - View Season 1 progress & rewards\n**/quests** - View daily quests (earn XP!)\n**/stats [pokemon]** - View detailed stats for your Pokemon\n**/pokedex [@user]** - View collected Pokemon\n**/count** - See how many of each Pokemon you have",
         inline=False
     )
 
     embed.add_field(
-        name="/quests",
-        value="View your daily quests and progress (earn XP!)",
+        name="⚔️ Battles",
+        value="**/battle @user** - PvP battle with another player\n**/gym** - Challenge Kanto Gym Leaders\n**/badges** - View your gym badge collection\n• Trainer battles: Random encounters when catching Pokemon",
         inline=False
     )
 
     embed.add_field(
-        name="/pack",
-        value="Open a Pokemon pack (10 random Pokemon)",
+        name="📦 Packs & Items",
+        value="**/pack** - Open Pokemon packs (select or open all)\n**/shop** - View available packs & items\n**/buy [item]** - Purchase from shop\n**/balance** - Check Pokedollars",
         inline=False
     )
 
     embed.add_field(
-        name="/wiki [pokemon]",
-        value="View Pokemon lore and Pokedex entries (random if no pokemon specified)",
+        name="🔄 Trading",
+        value="**/trade @user** - Trade Pokemon with others\n**/sell** - Sell duplicate Pokemon for Pokedollars",
         inline=False
     )
 
     embed.add_field(
-        name="/leaderboard",
-        value="View server leaderboards with different categories",
+        name="📚 Info & Lore",
+        value="**/wiki [pokemon]** - View Pokemon lore & Pokedex entries\n**/leaderboard** - Server rankings",
         inline=False
     )
 
     embed.add_field(
-        name="/trade @user",
-        value="Trade Pokemon with another user",
+        name="🔧 Admin Commands",
+        value="**/setup #channel** - Configure spawn channel\n**/clear** - Clear all spawn channels\n**/spawn** - Force spawn a Pokemon (testing)",
         inline=False
     )
 
-    embed.add_field(
-        name="/battle @user",
-        value="Battle another user with your Pokemon!",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/pokedex [@user]",
-        value="View your Pokedex (or another user's)",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/count",
-        value="See how many of each Pokemon you've caught",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/balance",
-        value="Check your Pokedollar balance",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/shop",
-        value="View available items and packs for purchase",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/buy [item]",
-        value="Purchase an item from the shop (e.g., /buy Basic Pack)",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/sell",
-        value="Sell duplicate Pokemon for Pokedollars",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/setup #channel",
-        value="(Admin only) Configure which channel Pokemon spawn in",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/clear",
-        value="(Admin only) Clear all spawn channels",
-        inline=False
-    )
-
-    embed.add_field(
-        name="/spawn",
-        value="(Admin only) Force spawn a Pokemon immediately for testing",
-        inline=False
-    )
-
-    embed.set_footer(text="Catch Pokemon to earn XP and Pokedollars! Use /shop to buy packs.")
+    embed.set_footer(text="💡 Tip: Catch Pokemon to earn XP & Pokedollars! Challenge gyms for badges!")
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 
