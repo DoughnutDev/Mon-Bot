@@ -762,7 +762,8 @@ class GymBattleView(View):
         types = [t['type']['name'] for t in poke_data['types']]
 
         # Get 4 random moves
-        moves = pkmn.get_pokemon_moves(poke_data)
+        async with aiohttp.ClientSession() as move_session:
+            moves = await fetch_pokemon_moves(move_session, selected_pokemon['pokemon_id'], 4)
 
         # Get species level
         species_level = await db.get_species_level(self.user.id, self.guild_id, selected_pokemon['pokemon_id'], selected_pokemon['pokemon_name'])
@@ -811,8 +812,8 @@ class GymBattleView(View):
                     return
                 poke_data = await resp.json()
 
-        # Get 4 random moves
-        moves = pkmn.get_pokemon_moves(poke_data)
+            # Get 4 random moves
+            moves = await fetch_pokemon_moves(session, gym_poke['id'], 4)
 
         # Calculate stats for gym Pokemon
         base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
