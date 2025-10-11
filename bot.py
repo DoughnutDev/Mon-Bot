@@ -901,6 +901,7 @@ class GymBattleView(View):
         # Pagination for Pokemon selection
         self.current_page = 0
         self.pokemon_per_page = 25
+        self.selected_pokemon_ids = []  # Track selected Pokemon IDs across pages
 
         # Deduplicate Pokemon by species
         seen_species = {}
@@ -924,23 +925,43 @@ class GymBattleView(View):
         end_idx = min(start_idx + self.pokemon_per_page, len(self.unique_pokemon))
         page_pokemon = self.unique_pokemon[start_idx:end_idx]
 
-        # Create dropdown (multi-select for gym battles)
+        # Show selected Pokemon if any
+        if self.selected_pokemon_ids:
+            selected_names = []
+            for pid in self.selected_pokemon_ids:
+                p = next((poke for poke in self.unique_pokemon if poke['id'] == pid), None)
+                if p:
+                    selected_names.append(p['pokemon_name'])
+
+            selection_button = Button(
+                label=f"Selected: {', '.join(selected_names[:3])}{'...' if len(selected_names) > 3 else ''} ({len(self.selected_pokemon_ids)}/{self.team_size})",
+                style=discord.ButtonStyle.primary,
+                disabled=True,
+                row=0
+            )
+            self.add_item(selection_button)
+
+        # Create dropdown (allows selecting/deselecting on current page)
+        # Changed to allow 0 selections so users can navigate pages without selecting
         self.pokemon_select = Select(
-            placeholder=f"Choose {self.team_size} Pokemon for your team...",
-            min_values=min(self.team_size, len(page_pokemon)),
-            max_values=min(self.team_size, len(page_pokemon))
+            placeholder=f"Add/Remove Pokemon from team...",
+            min_values=0,
+            max_values=min(len(page_pokemon), 25)
         )
 
         for pokemon in page_pokemon:
             level = pokemon.get('level', 1)
-            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            # Mark if already selected
+            is_selected = pokemon['id'] in self.selected_pokemon_ids
+            label = f"{'✓ ' if is_selected else ''}Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
             self.pokemon_select.add_option(
-                label=label,
+                label=label[:100],  # Discord limit
                 value=str(pokemon['id']),
-                emoji="⚔️"
+                emoji="✅" if is_selected else "⚔️",
+                default=is_selected
             )
 
-        self.pokemon_select.callback = self.pokemon_selected
+        self.pokemon_select.callback = self.pokemon_select_toggle
         self.add_item(self.pokemon_select)
 
         # Add pagination buttons if needed
@@ -948,8 +969,9 @@ class GymBattleView(View):
             prev_button = Button(
                 label="◀ Previous",
                 style=discord.ButtonStyle.secondary,
-                disabled=(self.current_page == 0),
-                custom_id="prev_page"
+                disabled=(self.current_page == 0 or self.battle_started),
+                custom_id="prev_page",
+                row=1
             )
             prev_button.callback = self.previous_page
             self.add_item(prev_button)
@@ -957,11 +979,23 @@ class GymBattleView(View):
             next_button = Button(
                 label="Next ▶",
                 style=discord.ButtonStyle.secondary,
-                disabled=(self.current_page >= self.total_pages - 1),
-                custom_id="next_page"
+                disabled=(self.current_page >= self.total_pages - 1 or self.battle_started),
+                custom_id="next_page",
+                row=1
             )
             next_button.callback = self.next_page
             self.add_item(next_button)
+
+        # Add "Start Battle" button
+        start_button = Button(
+            label=f"Start Battle! ({len(self.selected_pokemon_ids)}/{self.team_size} selected)",
+            style=discord.ButtonStyle.green if len(self.selected_pokemon_ids) == self.team_size else discord.ButtonStyle.gray,
+            disabled=(len(self.selected_pokemon_ids) != self.team_size or self.battle_started),
+            custom_id="start_battle",
+            row=2
+        )
+        start_button.callback = self.start_battle_button
+        self.add_item(start_button)
 
     async def previous_page(self, interaction: discord.Interaction):
         """Go to previous page of Pokemon"""
@@ -996,60 +1030,53 @@ class GymBattleView(View):
         self.update_pokemon_selection()
 
         embed = self.create_selection_embed()
-        embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • {len(self.unique_pokemon)} total Pokemon • Select {self.team_size} Pokemon")
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • {len(self.unique_pokemon)} total Pokemon • {len(self.selected_pokemon_ids)}/{self.team_size} selected")
         await interaction.response.edit_message(embed=embed, view=self)
 
-    def create_selection_embed(self):
-        """Create embed for Pokemon selection"""
-        gym_team_text = "\n".join([
-            f"**{p['name']}** (Lv.{p['level']}) - {'/'.join(p['types']).title()}"
-            for p in self.gym_data['pokemon']
-        ])
-
-        embed = discord.Embed(
-            title=f"🏟️ Challenge {self.gym_data['name']}!",
-            description=f"**{self.gym_data['title']}**\n📍 {self.gym_data['location']}",
-            color=discord.Color.orange()
-        )
-
-        embed.add_field(
-            name=f"{self.gym_data['type']} Type Specialist",
-            value=f"**Gym Team:**\n{gym_team_text}",
-            inline=False
-        )
-
-        rewards_text = f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
-        rewards_text += f"{self.gym_data['rewards']['xp']} BP XP\n"
-        rewards_text += f"1x {self.gym_data['rewards']['pack']}\n"
-        rewards_text += f"**{self.gym_data['badge']}**"
-
-        if self.already_defeated:
-            embed.add_field(
-                name="⚠️ Already Defeated",
-                value="You've already beaten this gym! You can battle for fun but won't earn rewards.",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="🎁 Rewards (First Victory)",
-                value=rewards_text,
-                inline=False
-            )
-
-        embed.set_footer(text=f"Select {self.team_size} Pokemon for your team to begin the challenge!")
-
-        return embed
-
-    async def pokemon_selected(self, interaction: discord.Interaction):
-        """Handle Pokemon team selection and start battle"""
+    async def pokemon_select_toggle(self, interaction: discord.Interaction):
+        """Toggle Pokemon selection on current page"""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        # Get selected values from dropdown
+        selected_on_page = [int(val) for val in self.pokemon_select.values]
 
-        # Get selected Pokemon IDs
-        selected_ids = [int(val) for val in self.pokemon_select.values]
+        # Get Pokemon on current page
+        start_idx = self.current_page * self.pokemon_per_page
+        end_idx = min(start_idx + self.pokemon_per_page, len(self.unique_pokemon))
+        page_pokemon_ids = [p['id'] for p in self.unique_pokemon[start_idx:end_idx]]
+
+        # Remove any from current page that aren't selected
+        self.selected_pokemon_ids = [pid for pid in self.selected_pokemon_ids if pid not in page_pokemon_ids]
+
+        # Add newly selected from current page (up to team_size limit)
+        for pid in selected_on_page:
+            if pid not in self.selected_pokemon_ids and len(self.selected_pokemon_ids) < self.team_size:
+                self.selected_pokemon_ids.append(pid)
+
+        # Update the view
+        self.update_pokemon_selection()
+        embed = self.create_selection_embed()
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • {len(self.unique_pokemon)} total Pokemon • {len(self.selected_pokemon_ids)}/{self.team_size} selected")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def start_battle_button(self, interaction: discord.Interaction):
+        """Start the battle with selected Pokemon"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        if len(self.selected_pokemon_ids) != self.team_size:
+            await interaction.response.send_message(f"❌ You must select exactly {self.team_size} Pokemon!", ephemeral=True)
+            return
+
+        # Use the selected IDs instead of dropdown values
+        await self.pokemon_selected_from_list(interaction, self.selected_pokemon_ids)
+
+    async def pokemon_selected_from_list(self, interaction: discord.Interaction, selected_ids: list):
+        """Handle Pokemon team selection and start battle"""
+        await interaction.response.defer()
 
         # Build user's team (use local data for speed)
         for selected_id in selected_ids:
@@ -1117,6 +1144,48 @@ class GymBattleView(View):
         # Delete the selection message and send new battle message
         await interaction.delete_original_response()
         self.battle_message = await interaction.followup.send(embed=embed, view=self)
+
+    def create_selection_embed(self):
+        """Create embed for Pokemon selection"""
+        gym_team_text = "\n".join([
+            f"**{p['name']}** (Lv.{p['level']}) - {'/'.join(p['types']).title()}"
+            for p in self.gym_data['pokemon']
+        ])
+
+        embed = discord.Embed(
+            title=f"🏟️ Challenge {self.gym_data['name']}!",
+            description=f"**{self.gym_data['title']}**\n📍 {self.gym_data['location']}",
+            color=discord.Color.orange()
+        )
+
+        embed.add_field(
+            name=f"{self.gym_data['type']} Type Specialist",
+            value=f"**Gym Team:**\n{gym_team_text}",
+            inline=False
+        )
+
+        rewards_text = f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
+        rewards_text += f"{self.gym_data['rewards']['xp']} BP XP\n"
+        rewards_text += f"1x {self.gym_data['rewards']['pack']}\n"
+        rewards_text += f"**{self.gym_data['badge']}**"
+
+        if self.already_defeated:
+            embed.add_field(
+                name="⚠️ Already Defeated",
+                value="You've already beaten this gym! You can battle for fun but won't earn rewards.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🎁 Rewards (First Victory)",
+                value=rewards_text,
+                inline=False
+            )
+
+        embed.set_footer(text=f"Select {self.team_size} Pokemon for your team to begin the challenge!")
+
+        return embed
+
 
     async def load_gym_pokemon(self):
         """Load current gym leader Pokemon"""
