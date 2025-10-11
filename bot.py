@@ -1006,7 +1006,7 @@ class GymBattleView(View):
         damage = ((2 * level / 5 + 2) * power * (attack / defense) / 50) + 2
 
         # Apply type effectiveness
-        effectiveness = pkmn.get_type_effectiveness(move['type'], defender['types'])
+        effectiveness = pkmn.get_type_effectiveness([move['type']], defender['types'])
         damage *= effectiveness
 
         # Apply critical hit

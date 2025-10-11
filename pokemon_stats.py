@@ -96,6 +96,31 @@ def get_pokemon_stats(pokemon_id: int) -> dict:
     return POKEMON_BASE_STATS.get(pokemon_id, DEFAULT_STATS).copy()
 
 
+def calculate_battle_stats(base_stats: dict, level: int) -> dict:
+    """Calculate battle stats based on base stats and level"""
+    return {
+        'hp': base_stats.get('hp', 50) + (level * 2),
+        'attack': base_stats.get('attack', 50) + int(level * 1.5),
+        'defense': base_stats.get('defense', 50) + level,
+        'speed': base_stats.get('speed', 50),
+        'special-attack': base_stats.get('special-attack', base_stats.get('attack', 50)) + int(level * 1.5),
+        'special-defense': base_stats.get('special-defense', base_stats.get('defense', 50)) + level
+    }
+
+
+def create_hp_bar(hp_percent: float) -> str:
+    """Create a visual HP bar"""
+    filled = int(hp_percent / 10)
+    empty = 10 - filled
+
+    if hp_percent > 50:
+        return f"{'🟩' * filled}{'⬜' * empty}"
+    elif hp_percent > 25:
+        return f"{'🟨' * filled}{'⬜' * empty}"
+    else:
+        return f"{'🟥' * filled}{'⬜' * empty}"
+
+
 def get_type_effectiveness(attacker_types: list, defender_types: list) -> float:
     """Calculate type effectiveness multiplier"""
     multiplier = 1.0
