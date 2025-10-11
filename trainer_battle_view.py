@@ -92,7 +92,7 @@ class TrainerBattleView(View):
         """Create embed for Pokemon selection"""
         embed = discord.Embed(
             title=f"⚔️ Trainer Battle: {self.trainer['name']} vs. {self.user.display_name}",
-            description=f"Select your Pokemon to battle {self.trainer['class']} {self.trainer['name']}!",
+            description=f"Select your Pokemon to battle {self.trainer['name']}!",
             color=discord.Color.red()
         )
 
@@ -416,7 +416,7 @@ class TrainerBattleView(View):
         """Create battle embed"""
         embed = discord.Embed(
             title=f"⚔️ Trainer Battle: {self.trainer['name']} vs. {self.user.display_name}",
-            description=f"**{self.user.display_name}** vs **{self.trainer['class']} {self.trainer['name']}**",
+            description=f"**{self.user.display_name}** vs **{self.trainer['name']}**",
             color=discord.Color.orange()
         )
 
@@ -486,7 +486,7 @@ class TrainerBattleView(View):
         # Create victory embed
         embed = discord.Embed(
             title="🎉 Victory!",
-            description=f"You defeated **{self.trainer['class']} {self.trainer['name']}**!",
+            description=f"You defeated **{self.trainer['name']}**!",
             color=discord.Color.green()
         )
 
@@ -519,7 +519,7 @@ class TrainerBattleView(View):
         # Create defeat embed
         embed = discord.Embed(
             title="💔 Defeated...",
-            description=f"You were defeated by **{self.trainer['class']} {self.trainer['name']}**!",
+            description=f"You were defeated by **{self.trainer['name']}**!",
             color=discord.Color.red()
         )
 
@@ -551,7 +551,7 @@ class TrainerBattleView(View):
         # Create flee embed
         embed = discord.Embed(
             title="🏃 Fled from Battle!",
-            description=f"You ran away from **{self.trainer['class']} {self.trainer['name']}**!",
+            description=f"You ran away from **{self.trainer['name']}**!",
             color=discord.Color.blue()
         )
 
