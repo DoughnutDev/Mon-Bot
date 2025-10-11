@@ -2099,6 +2099,15 @@ class BattleView(View):
         self.p2_status = None
         self.p2_status_turns = 0
 
+        # Pagination state
+        self.user1_page = 0
+        self.user2_page = 0
+        self.pokemon_per_page = 25
+
+        # Dynamic selects (will be populated later)
+        self.user1_select = None
+        self.user2_select = None
+
     async def load_pokemon(self):
         """Load Pokemon for both users"""
         self.user1_pokemon = await db.get_user_pokemon_for_trade(self.user1.id, self.guild_id)
@@ -2701,14 +2710,123 @@ class BattleView(View):
         else:
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.select(placeholder=f"Select your Pokemon...", custom_id="battle_user1_select", min_values=1, max_values=1)
-    async def user1_select(self, interaction: discord.Interaction, select: Select):
+    def update_pokemon_selects(self):
+        """Update Pokemon selection dropdowns with pagination"""
+        self.clear_items()
+
+        # User 1 select
+        start_idx = self.user1_page * self.pokemon_per_page
+        end_idx = min(start_idx + self.pokemon_per_page, len(self.user1_pokemon))
+        user1_page_pokemon = self.user1_pokemon[start_idx:end_idx]
+
+        self.user1_select = Select(
+            placeholder=f"{self.user1.display_name}: Select your Pokemon...",
+            custom_id="battle_user1_select",
+            min_values=1,
+            max_values=1,
+            row=0
+        )
+
+        for pokemon in user1_page_pokemon:
+            level = pokemon.get('level', 1)
+            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            self.user1_select.add_option(
+                label=label[:100],  # Discord limit
+                value=str(pokemon['id']),
+                emoji="⚔️"
+            )
+
+        self.user1_select.callback = self.user1_select_callback
+        self.add_item(self.user1_select)
+
+        # User 2 select
+        start_idx = self.user2_page * self.pokemon_per_page
+        end_idx = min(start_idx + self.pokemon_per_page, len(self.user2_pokemon))
+        user2_page_pokemon = self.user2_pokemon[start_idx:end_idx]
+
+        self.user2_select = Select(
+            placeholder=f"{self.user2.display_name}: Select your Pokemon...",
+            custom_id="battle_user2_select",
+            min_values=1,
+            max_values=1,
+            row=1
+        )
+
+        for pokemon in user2_page_pokemon:
+            level = pokemon.get('level', 1)
+            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            self.user2_select.add_option(
+                label=label[:100],  # Discord limit
+                value=str(pokemon['id']),
+                emoji="⚔️"
+            )
+
+        self.user2_select.callback = self.user2_select_callback
+        self.add_item(self.user2_select)
+
+        # Add pagination buttons for user 1
+        user1_total_pages = (len(self.user1_pokemon) + self.pokemon_per_page - 1) // self.pokemon_per_page
+        if user1_total_pages > 1:
+            prev1_button = Button(
+                label=f"◀ {self.user1.display_name}",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.user1_page == 0 or self.battle_started),
+                custom_id="user1_prev",
+                row=2
+            )
+            prev1_button.callback = self.user1_previous_page
+            self.add_item(prev1_button)
+
+            next1_button = Button(
+                label=f"{self.user1.display_name} ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.user1_page >= user1_total_pages - 1 or self.battle_started),
+                custom_id="user1_next",
+                row=2
+            )
+            next1_button.callback = self.user1_next_page
+            self.add_item(next1_button)
+
+        # Add pagination buttons for user 2
+        user2_total_pages = (len(self.user2_pokemon) + self.pokemon_per_page - 1) // self.pokemon_per_page
+        if user2_total_pages > 1:
+            prev2_button = Button(
+                label=f"◀ {self.user2.display_name}",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.user2_page == 0 or self.battle_started),
+                custom_id="user2_prev",
+                row=3
+            )
+            prev2_button.callback = self.user2_previous_page
+            self.add_item(prev2_button)
+
+            next2_button = Button(
+                label=f"{self.user2.display_name} ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.user2_page >= user2_total_pages - 1 or self.battle_started),
+                custom_id="user2_next",
+                row=3
+            )
+            next2_button.callback = self.user2_next_page
+            self.add_item(next2_button)
+
+        # Add ready button
+        ready_button = Button(
+            label="Ready to Battle!",
+            style=discord.ButtonStyle.green,
+            custom_id="battle_ready",
+            row=4
+        )
+        ready_button.callback = self.ready_button_callback
+        self.add_item(ready_button)
+
+    async def user1_select_callback(self, interaction: discord.Interaction):
         """User 1 selects their Pokemon"""
         if interaction.user.id != self.user1.id:
             await interaction.response.send_message("This is not your battle!", ephemeral=True)
             return
 
-        catch_id = int(select.values[0])
+        catch_id = int(self.user1_select.values[0])
         selected = next((p for p in self.user1_pokemon if p['id'] == catch_id), None)
 
         if selected:
@@ -2726,14 +2844,13 @@ class BattleView(View):
             self.user1_ready = False
             await self.update_display(interaction)
 
-    @discord.ui.select(placeholder=f"Select your Pokemon...", custom_id="battle_user2_select", min_values=1, max_values=1)
-    async def user2_select(self, interaction: discord.Interaction, select: Select):
+    async def user2_select_callback(self, interaction: discord.Interaction):
         """User 2 selects their Pokemon"""
         if interaction.user.id != self.user2.id:
             await interaction.response.send_message("This is not your battle!", ephemeral=True)
             return
 
-        catch_id = int(select.values[0])
+        catch_id = int(self.user2_select.values[0])
         selected = next((p for p in self.user2_pokemon if p['id'] == catch_id), None)
 
         if selected:
@@ -2750,6 +2867,68 @@ class BattleView(View):
             self.user2_choice = selected
             self.user2_ready = False
             await self.update_display(interaction)
+
+    async def user1_previous_page(self, interaction: discord.Interaction):
+        """User 1 goes to previous page"""
+        if interaction.user.id != self.user1.id:
+            await interaction.response.send_message("You can only change your own pages!", ephemeral=True)
+            return
+
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
+            return
+
+        self.user1_page = max(0, self.user1_page - 1)
+        self.update_pokemon_selects()
+        await self.update_display(interaction)
+
+    async def user1_next_page(self, interaction: discord.Interaction):
+        """User 1 goes to next page"""
+        if interaction.user.id != self.user1.id:
+            await interaction.response.send_message("You can only change your own pages!", ephemeral=True)
+            return
+
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
+            return
+
+        user1_total_pages = (len(self.user1_pokemon) + self.pokemon_per_page - 1) // self.pokemon_per_page
+        self.user1_page = min(user1_total_pages - 1, self.user1_page + 1)
+        self.update_pokemon_selects()
+        await self.update_display(interaction)
+
+    async def user2_previous_page(self, interaction: discord.Interaction):
+        """User 2 goes to previous page"""
+        if interaction.user.id != self.user2.id:
+            await interaction.response.send_message("You can only change your own pages!", ephemeral=True)
+            return
+
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
+            return
+
+        self.user2_page = max(0, self.user2_page - 1)
+        self.update_pokemon_selects()
+        await self.update_display(interaction)
+
+    async def user2_next_page(self, interaction: discord.Interaction):
+        """User 2 goes to next page"""
+        if interaction.user.id != self.user2.id:
+            await interaction.response.send_message("You can only change your own pages!", ephemeral=True)
+            return
+
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
+            return
+
+        user2_total_pages = (len(self.user2_pokemon) + self.pokemon_per_page - 1) // self.pokemon_per_page
+        self.user2_page = min(user2_total_pages - 1, self.user2_page + 1)
+        self.update_pokemon_selects()
+        await self.update_display(interaction)
+
+    async def ready_button_callback(self, interaction: discord.Interaction):
+        """Ready button callback"""
+        return await self.ready_button(interaction, None)
 
     @discord.ui.button(label="Ready to Battle!", style=discord.ButtonStyle.green, custom_id="battle_ready", row=4)
     async def ready_button(self, interaction: discord.Interaction, button: Button):
@@ -3785,32 +3964,8 @@ async def battle(interaction: discord.Interaction, user: discord.Member):
     view.user1_pokemon = user1_with_levels
     view.user2_pokemon = user2_with_levels
 
-    # Populate dropdown options (max 25 options per dropdown)
-    user1_options = []
-    for pokemon in user1_with_levels[:25]:
-        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user1_options.append(discord.SelectOption(
-            label=label,
-            value=str(pokemon['id']),
-            emoji="⚔️"
-        ))
-
-    user2_options = []
-    for pokemon in user2_with_levels[:25]:
-        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user2_options.append(discord.SelectOption(
-            label=label,
-            value=str(pokemon['id']),
-            emoji="⚔️"
-        ))
-
-    # Set dropdown options
-    view.user1_select.options = user1_options
-    view.user2_select.options = user2_options
-
-    # Update placeholders with usernames
-    view.user1_select.placeholder = f"{interaction.user.display_name}: Choose your Pokemon..."
-    view.user2_select.placeholder = f"{user.display_name}: Choose your Pokemon..."
+    # Update view with pagination
+    view.update_pokemon_selects()
 
     embed = view.create_embed()
     await interaction.followup.send(embed=embed, view=view)
