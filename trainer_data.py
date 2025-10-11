@@ -2,9 +2,98 @@
 Trainer data for random trainer encounters
 
 Trainers have themed teams based on Pokemon types or trainer classes
+Includes battle quotes for flavor text
 """
 
 import random
+
+# Generic battle quotes by trainer class
+TRAINER_QUOTES = {
+    'Bug Catcher': [
+        "Bug Pokemon are way stronger than you think!",
+        "My bug Pokemon will show you their true power!",
+        "Bugs are cool! You'll see!",
+        "Don't underestimate the power of bug types!"
+    ],
+    'Youngster': [
+        "My Pokemon are the top percentage of Pokemon!",
+        "I'm gonna be the best trainer ever!",
+        "Let me show you my super cool Pokemon!",
+        "Shorts are comfy and easy to wear!"
+    ],
+    'Lass': [
+        "My Pokemon and I are best friends!",
+        "Don't think I'll go easy on you!",
+        "My Pokemon are just the cutest!",
+        "I may look sweet, but I battle hard!"
+    ],
+    'Hiker': [
+        "I've been training in the mountains for years!",
+        "Rock solid Pokemon are my specialty!",
+        "Let's rock and roll!",
+        "My Pokemon are as tough as the rocks I climb!"
+    ],
+    'Picnicker': [
+        "I've been training during my picnic!",
+        "Nature is full of strong Pokemon!",
+        "My grass Pokemon will overwhelm you!",
+        "Time for a battle break from my picnic!"
+    ],
+    'Camper': [
+        "I've been training in the wilderness!",
+        "My outdoor adventures made me tough!",
+        "Camping taught me to survive anything!",
+        "Let's have a wild battle!"
+    ],
+    'Swimmer': [
+        "The water is my home turf!",
+        "I'll wash away your chances of winning!",
+        "My water Pokemon are unbeatable!",
+        "Time to make a splash in battle!"
+    ],
+    'Fisherman': [
+        "I may look like I'm fishing, but I'm ready!",
+        "The ocean gives me powerful Pokemon!",
+        "Hooked on Pokemon battles!",
+        "Reel in for a battle!"
+    ],
+    'Engineer': [
+        "My electric Pokemon are fully charged!",
+        "Science and Pokemon make the perfect team!",
+        "I've calculated your defeat!",
+        "Let's conduct some battle experiments!"
+    ],
+    'Psychic': [
+        "I've already foreseen your defeat!",
+        "My psychic powers give me the advantage!",
+        "I can read your battle strategy!",
+        "The future shows me as the winner!"
+    ],
+    'Channeler': [
+        "The spirits guide my Pokemon!",
+        "Do you believe in ghosts? You will after this!",
+        "My ghostly Pokemon will haunt you!",
+        "The spirit world strengthens my team!"
+    ],
+    'Beauty': [
+        "Beauty and strength go hand in hand!",
+        "Don't let my looks fool you!",
+        "My Pokemon are as beautiful as they are strong!",
+        "Time to show you elegant power!"
+    ],
+    'Biker': [
+        "I'm about to run you off the road!",
+        "My poison Pokemon are deadly!",
+        "You're in for a rough ride!",
+        "Time to show you what tough really means!"
+    ],
+    'Cooltrainer': [
+        "I don't mess around in battles!",
+        "Let me show you what a real trainer looks like!",
+        "You're about to face a serious challenge!",
+        "Think you can handle my team? Let's find out!"
+    ]
+}
 
 # Trainer class definitions with themed teams
 TRAINERS = [
@@ -255,8 +344,17 @@ TRAINERS = [
 
 
 def get_random_trainer():
-    """Get a random trainer from the list"""
-    return random.choice(TRAINERS).copy()
+    """Get a random trainer from the list with a random battle quote"""
+    trainer = random.choice(TRAINERS).copy()
+
+    # Add a random quote based on their class
+    trainer_class = trainer['class']
+    if trainer_class in TRAINER_QUOTES:
+        trainer['quote'] = random.choice(TRAINER_QUOTES[trainer_class])
+    else:
+        trainer['quote'] = "Let's battle!"
+
+    return trainer
 
 
 def get_trainer_team(trainer, user_level_avg=15):
