@@ -834,27 +834,8 @@ class GymSelectView(View):
         pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
         pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
 
-        # Create gym battle view
+        # Create gym battle view (now handles Pokemon selection internally with pagination)
         gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, pokemon_with_levels, gym_key in self.user_badges)
-
-        # Create Pokemon selection dropdown (deduplicate by species)
-        pokemon_options = []
-        seen_species = set()
-        for pokemon in pokemon_with_levels:
-            if len(pokemon_options) >= 25:  # Max 25 options
-                break
-
-            species_id = pokemon['pokemon_id']
-            if species_id not in seen_species:
-                seen_species.add(species_id)
-                label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-                pokemon_options.append(discord.SelectOption(
-                    label=label,
-                    value=str(pokemon['id']),
-                    emoji="⚔️"  # Battle emoji for gym battles
-                ))
-
-        gym_battle_view.pokemon_select.options = pokemon_options
 
         # Delete the gym selection message
         await interaction.delete_original_response()
@@ -917,14 +898,96 @@ class GymBattleView(View):
         # Team size based on gym leader's team
         self.team_size = len(self.gym_data['pokemon'])
 
-        # Create Pokemon selection dropdown (allow multiple selection)
+        # Pagination for Pokemon selection
+        self.current_page = 0
+        self.pokemon_per_page = 25
+
+        # Deduplicate Pokemon by species
+        seen_species = {}
+        for pokemon in user_pokemon:
+            species_id = pokemon['pokemon_id']
+            if species_id not in seen_species:
+                seen_species[species_id] = pokemon
+
+        self.unique_pokemon = list(seen_species.values())
+        self.total_pages = (len(self.unique_pokemon) + self.pokemon_per_page - 1) // self.pokemon_per_page
+
+        # Create initial selection UI
+        self.update_pokemon_selection()
+
+    def update_pokemon_selection(self):
+        """Update Pokemon dropdown for current page"""
+        self.clear_items()
+
+        # Calculate pagination
+        start_idx = self.current_page * self.pokemon_per_page
+        end_idx = min(start_idx + self.pokemon_per_page, len(self.unique_pokemon))
+        page_pokemon = self.unique_pokemon[start_idx:end_idx]
+
+        # Create dropdown (multi-select for gym battles)
         self.pokemon_select = Select(
             placeholder=f"Choose {self.team_size} Pokemon for your team...",
-            min_values=self.team_size,
-            max_values=self.team_size
+            min_values=min(self.team_size, len(page_pokemon)),
+            max_values=min(self.team_size, len(page_pokemon))
         )
+
+        for pokemon in page_pokemon:
+            level = pokemon.get('level', 1)
+            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            self.pokemon_select.add_option(
+                label=label,
+                value=str(pokemon['id']),
+                emoji="⚔️"
+            )
+
         self.pokemon_select.callback = self.pokemon_selected
         self.add_item(self.pokemon_select)
+
+        # Add pagination buttons if needed
+        if self.total_pages > 1:
+            prev_button = Button(
+                label="◀ Previous",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.current_page == 0),
+                custom_id="prev_page"
+            )
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+
+            next_button = Button(
+                label="Next ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.current_page >= self.total_pages - 1),
+                custom_id="next_page"
+            )
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Go to previous page of Pokemon"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        self.current_page = max(0, self.current_page - 1)
+        self.update_pokemon_selection()
+
+        embed = self.create_selection_embed()
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • {len(self.unique_pokemon)} total Pokemon • Select {self.team_size} Pokemon")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Go to next page of Pokemon"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        self.current_page = min(self.total_pages - 1, self.current_page + 1)
+        self.update_pokemon_selection()
+
+        embed = self.create_selection_embed()
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • {len(self.unique_pokemon)} total Pokemon • Select {self.team_size} Pokemon")
+        await interaction.response.edit_message(embed=embed, view=self)
 
     def create_selection_embed(self):
         """Create embed for Pokemon selection"""
