@@ -3169,10 +3169,10 @@ async def stats(interaction: discord.Interaction):
         battles_lost = species_stats['battles_lost']
 
         # Calculate base stats and battle stats
-        base_stats = pkmn.get_pokemon_stats(pokemon_id)
+        base_stats = poke_data.get_pokemon_stats(pokemon_id)
         battle_stats = pkmn.calculate_battle_stats(base_stats, level)
-        types = pkmn.get_pokemon_types(pokemon_id)
-        sprite = pkmn.get_pokemon_sprite(pokemon_id)
+        types = poke_data.get_pokemon_types(pokemon_id)
+        sprite = poke_data.get_pokemon_sprite(pokemon_id)
 
         # Calculate XP progress
         current_level_xp = experience % 100
