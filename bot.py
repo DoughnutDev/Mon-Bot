@@ -691,6 +691,7 @@ class GymBattleView(View):
         self.user_pokemon_index = 0  # Current user Pokemon index
         self.gym_pokemon_index = 0  # Current gym leader Pokemon index
         self.battle_started = False
+        self.battle_message = None  # Store reference to battle message for updates
 
         # Current active Pokemon (set when battle starts)
         self.user_choice = None
@@ -852,7 +853,7 @@ class GymBattleView(View):
 
         # Delete the selection message and send new battle message
         await interaction.delete_original_response()
-        await interaction.followup.send(embed=embed, view=self)
+        self.battle_message = await interaction.followup.send(embed=embed, view=self)
 
     async def load_gym_pokemon(self):
         """Load current gym leader Pokemon"""
@@ -1023,11 +1024,17 @@ class GymBattleView(View):
                         await self.handle_defeat(select_interaction)
                         return
 
-                # Update UI
+                # Update UI with new Pokemon's moves
                 self.clear_items()
                 await self.create_battle_buttons()
                 embed = self.create_battle_embed()
-                await select_interaction.edit_original_response(embed=embed, view=self)
+
+                # Update the main battle message with new moves
+                if self.battle_message:
+                    await self.battle_message.edit(embed=embed, view=self)
+
+                # Close the switch selection
+                await select_interaction.edit_original_response(content="✅ Switched Pokemon!", embed=None, view=None)
 
             switch_select.callback = switch_selected
 
@@ -1344,7 +1351,10 @@ class GymBattleView(View):
 
         # Update embed
         embed = self.create_battle_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        if self.battle_message:
+            await self.battle_message.edit(embed=embed, view=self)
+        else:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def calculate_damage(self, move, attacker, defender, attacker_stat_stages, attacker_status, defender_stat_stages):
         """Calculate damage for a move with stat stages and status conditions"""
