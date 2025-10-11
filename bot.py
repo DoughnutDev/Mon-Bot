@@ -891,13 +891,38 @@ class GymBattleView(View):
         # Gym Pokemon randomly selects a move
         gym_move = random.choice(self.gym_current_pokemon['moves'])
 
-        # Determine turn order based on speed
+        # Determine turn order based on speed (paralysis affects speed)
         user_speed = self.user_choice['stats']['speed']
         gym_speed = self.gym_current_pokemon['stats']['speed']
 
+        # Apply paralysis speed reduction
+        if self.user_status == 'paralysis':
+            user_speed = int(user_speed * 0.25)
+        if self.gym_status == 'paralysis':
+            gym_speed = int(gym_speed * 0.25)
+
         if user_speed >= gym_speed:
             # User goes first
-            user_damage, user_crit, user_hit = await self.calculate_damage(
+            # Check if user is immobilized
+            is_immobilized, immobilize_msg = self.check_immobilized(
+                self.user_choice['pokemon_name'],
+                self.user_status,
+                self.user_status_turns
+            )
+
+            if is_immobilized:
+                self.battle_log.append(immobilize_msg)
+            else:
+                # Execute user's move
+                if user_move['damage_class'] == 'status':
+                    # Status move
+                    self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**!")
+                    status_msg = self.execute_status_move(user_move, is_user_move=True)
+                    if status_msg:
+                        self.battle_log.append(status_msg)
+                else:
+                    # Damaging move
+                    user_damage, user_crit, user_hit = await self.calculate_damage(
                 user_move,
                 self.user_choice,
                 self.gym_current_pokemon,
@@ -1071,6 +1096,196 @@ class GymBattleView(View):
         damage *= random.uniform(0.85, 1.0)
 
         return int(damage), is_crit, True
+
+    def apply_stat_change(self, target_stat_stages: dict, stat: str, stages: int) -> tuple:
+        """Apply stat change and return message and if it was successful"""
+        old_stage = target_stat_stages.get(stat, 0)
+        new_stage = max(-6, min(6, old_stage + stages))
+
+        if new_stage == old_stage:
+            # Stat is already at max/min
+            if stages > 0:
+                return f"won't go higher!", False
+            else:
+                return f"won't go lower!", False
+
+        target_stat_stages[stat] = new_stage
+
+        # Generate message
+        stat_name = stat.replace('-', ' ').title()
+        if stages > 0:
+            if stages == 1:
+                return f"{stat_name} rose!", True
+            elif stages == 2:
+                return f"{stat_name} rose sharply!", True
+            else:
+                return f"{stat_name} rose drastically!", True
+        else:
+            if stages == -1:
+                return f"{stat_name} fell!", True
+            elif stages == -2:
+                return f"{stat_name} fell harshly!", True
+            else:
+                return f"{stat_name} fell severely!", True
+
+    def execute_status_move(self, move: dict, is_user_move: bool) -> str:
+        """Execute a status move and return battle log message"""
+        move_name = move['name'].lower()
+        stat_changes = pkmn.get_move_stat_changes(move_name)
+
+        if not stat_changes:
+            return ""
+
+        messages = []
+
+        # Determine which Pokemon is using the move
+        if is_user_move:
+            user_name = self.user_choice['pokemon_name']
+        else:
+            user_name = self.gym_current_pokemon['pokemon_name']
+
+        # Apply primary stat change
+        if stat_changes['target'] == 'user':
+            # Buff user's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.gym_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+        else:
+            # Debuff opponent's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.gym_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.gym_current_pokemon['pokemon_name']}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.user_choice['pokemon_name']}**'s {message}")
+
+        # Apply secondary stat change if exists
+        if 'secondary' in stat_changes:
+            secondary = stat_changes['secondary']
+            if stat_changes['target'] == 'user':
+                if is_user_move:
+                    message, success = self.apply_stat_change(
+                        self.user_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+                else:
+                    message, success = self.apply_stat_change(
+                        self.gym_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+
+        return " ".join(messages)
+
+    def apply_end_of_turn_effects(self) -> list:
+        """Apply end-of-turn status condition effects. Returns list of messages."""
+        messages = []
+
+        # User status effects
+        if self.user_status:
+            status_data = pkmn.get_status_condition_effect(self.user_status)
+
+            if self.user_status == 'burn' or self.user_status == 'poison':
+                # Damage over time
+                damage = int(self.user_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.user_current_hp -= damage
+                self.user_current_hp = max(0, self.user_current_hp)
+                messages.append(f"**{self.user_choice['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
+
+            elif self.user_status == 'badly_poison':
+                # Badly poisoned damage increases each turn
+                self.user_status_turns += 1
+                damage = int(self.user_max_hp * status_data['base_damage'] * self.user_status_turns)
+                damage = max(1, damage)
+                self.user_current_hp -= damage
+                self.user_current_hp = max(0, self.user_current_hp)
+                messages.append(f"**{self.user_choice['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
+
+            elif self.user_status == 'sleep':
+                # Decrement sleep counter
+                self.user_status_turns -= 1
+                if self.user_status_turns <= 0:
+                    self.user_status = None
+                    messages.append(f"**{self.user_choice['pokemon_name']}** woke up!")
+
+        # Gym Pokemon status effects
+        if self.gym_status:
+            status_data = pkmn.get_status_condition_effect(self.gym_status)
+
+            if self.gym_status == 'burn' or self.gym_status == 'poison':
+                damage = int(self.gym_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.gym_current_hp -= damage
+                self.gym_current_hp = max(0, self.gym_current_hp)
+                messages.append(f"**{self.gym_current_pokemon['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
+
+            elif self.gym_status == 'badly_poison':
+                self.gym_status_turns += 1
+                damage = int(self.gym_max_hp * status_data['base_damage'] * self.gym_status_turns)
+                damage = max(1, damage)
+                self.gym_current_hp -= damage
+                self.gym_current_hp = max(0, self.gym_current_hp)
+                messages.append(f"**{self.gym_current_pokemon['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
+
+            elif self.gym_status == 'sleep':
+                self.gym_status_turns -= 1
+                if self.gym_status_turns <= 0:
+                    self.gym_status = None
+                    messages.append(f"**{self.gym_current_pokemon['pokemon_name']}** woke up!")
+
+        return messages
+
+    def check_immobilized(self, pokemon_name: str, status: str, status_turns: int) -> tuple:
+        """Check if Pokemon is immobilized by status. Returns (is_immobilized, message)"""
+        if not status:
+            return False, ""
+
+        status_data = pkmn.get_status_condition_effect(status)
+
+        if status == 'sleep':
+            return True, f"**{pokemon_name}** is fast asleep! {status_data['emoji']}"
+
+        elif status == 'freeze':
+            # Check for thaw
+            if random.random() < status_data['thaw_chance']:
+                return False, f"**{pokemon_name}** thawed out!"
+            return True, f"**{pokemon_name}** is frozen solid! {status_data['emoji']}"
+
+        elif status == 'paralysis':
+            # 25% chance to be fully paralyzed
+            if random.random() < status_data['immobilize_chance']:
+                return True, f"**{pokemon_name}** is fully paralyzed! {status_data['emoji']}"
+
+        return False, ""
 
     def create_battle_embed(self):
         """Create battle status embed"""
