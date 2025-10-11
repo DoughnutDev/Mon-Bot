@@ -19,6 +19,8 @@ import quest_system
 import gym_leaders
 # Import local Pokemon data loader (with fallback to PokeAPI)
 import pokemon_data_loader as poke_data
+# Import trainer data for random encounters
+import trainer_data
 
 # Load environment variables
 load_dotenv()
@@ -312,6 +314,53 @@ async def on_message(message):
 
             user_id = message.author.id
             guild_id = message.guild.id if message.guild else 0
+
+            # 25% chance for a trainer to appear and claim the Pokemon
+            if random.random() < 0.25:
+                # Get a random trainer
+                trainer = trainer_data.get_random_trainer()
+
+                # Get user's average Pokemon level for scaling
+                user_pokemon = await db.get_user_pokemon_for_trade(user_id, guild_id)
+                if user_pokemon:
+                    pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
+                    level_dict = await db.get_multiple_species_levels(user_id, guild_id, pokemon_ids)
+                    avg_level = sum(level_dict.values()) / len(level_dict) if level_dict else 15
+                else:
+                    avg_level = 10  # New players get easier trainers
+
+                # Get trainer's Pokemon team
+                trainer_team = trainer_data.get_trainer_team(trainer, avg_level)
+
+                # Send trainer appearance message
+                trainer_embed = discord.Embed(
+                    title=f"{trainer['sprite']} {trainer['name']} wants to battle!",
+                    description=f"**\"{pokemon['name']}\"? That's MY Pokemon! Fight me for it!**",
+                    color=discord.Color.red()
+                )
+
+                # Show trainer's team
+                team_text = "\n".join([f"• {poke_data.get_pokemon_name(p['pokemon_id'])} (Lv.{p['level']})" for p in trainer_team])
+                trainer_embed.add_field(
+                    name=f"{trainer['class']}'s Team",
+                    value=team_text,
+                    inline=False
+                )
+
+                trainer_embed.add_field(
+                    name="💰 Rewards if you win",
+                    value=f"• **{pokemon['name']}** (the wild Pokemon)\n• **{trainer['reward_money']}** Pokedollars\n• Battle XP",
+                    inline=False
+                )
+
+                trainer_embed.set_footer(text="Use /battle to select your Pokemon and fight!")
+
+                await message.channel.send(embed=trainer_embed)
+
+                # Store trainer battle data for later (when user accepts)
+                # For now, just give them the Pokemon normally
+                # TODO: Implement actual battle acceptance and mechanics
+                await message.channel.send("*(Trainer battles not fully implemented yet - Pokemon caught automatically!)*")
 
             # Save catch to database
             await db.add_catch(
