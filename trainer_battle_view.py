@@ -183,9 +183,17 @@ class TrainerBattleView(View):
     async def create_battle_buttons(self):
         """Create move buttons for battle"""
         for i, move in enumerate(self.user_choice['moves']):
+            # Determine button color based on move damage class
+            if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+                button_style = discord.ButtonStyle.secondary  # Gray for status moves
+            elif move['damage_class'] == 'physical':
+                button_style = discord.ButtonStyle.danger  # Red for physical attacks
+            else:  # special
+                button_style = discord.ButtonStyle.primary  # Blue for special attacks
+
             move_button = Button(
-                label=move['name'],
-                style=discord.ButtonStyle.primary,
+                label=f"{move['name']} ({move['type']})",
+                style=button_style,
                 custom_id=f"move_{i}",
                 row=i // 2
             )

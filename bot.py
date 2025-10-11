@@ -331,8 +331,14 @@ async def on_message(message):
                 else:
                     avg_level = 10  # New players get easier trainers
 
-                # Get trainer's Pokemon team
-                trainer_team = trainer_data.get_trainer_team(trainer, avg_level)
+                # Trainer uses the wild Pokemon being caught (scaled to user's level)
+                # Make it slightly easier than user's average level
+                trainer_pokemon_level = max(1, int(avg_level * 0.8))  # 80% of user's average
+
+                trainer_team = [{
+                    'pokemon_id': pokemon['id'],
+                    'level': trainer_pokemon_level
+                }]
 
                 # Send trainer appearance message
                 trainer_embed = discord.Embed(
@@ -341,11 +347,10 @@ async def on_message(message):
                     color=discord.Color.red()
                 )
 
-                # Show trainer's team
-                team_text = "\n".join([f"• {poke_data.get_pokemon_name(p['pokemon_id'])} (Lv.{p['level']})" for p in trainer_team])
+                # Show trainer's Pokemon (just the wild one they're claiming)
                 trainer_embed.add_field(
-                    name=f"{trainer['class']}'s Team",
-                    value=team_text,
+                    name=f"{trainer['class']}'s Pokemon",
+                    value=f"• **{pokemon['name']}** (Lv.{trainer_pokemon_level})",
                     inline=False
                 )
 
@@ -1016,9 +1021,17 @@ class GymBattleView(View):
     async def create_battle_buttons(self):
         """Create move buttons for battle"""
         for i, move in enumerate(self.user_choice['moves']):
+            # Determine button color based on move damage class
+            if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+                button_style = discord.ButtonStyle.secondary  # Gray for status moves
+            elif move['damage_class'] == 'physical':
+                button_style = discord.ButtonStyle.danger  # Red for physical attacks
+            else:  # special
+                button_style = discord.ButtonStyle.primary  # Blue for special attacks
+
             button = Button(
                 label=f"{move['name']} ({move['type']})",
-                style=discord.ButtonStyle.primary,
+                style=button_style,
                 custom_id=f"move_{i}",
                 row=i // 2  # 2 buttons per row
             )
