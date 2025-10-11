@@ -318,8 +318,8 @@ async def on_message(message):
             user_id = message.author.id
             guild_id = message.guild.id if message.guild else 0
 
-            # 25% chance for a trainer to appear and claim the Pokemon
-            if random.random() < 0.25:
+            # 15% chance for a trainer to appear and claim the Pokemon
+            if random.random() < 0.15:
                 # Get a random trainer
                 trainer = trainer_data.get_random_trainer()
 
@@ -332,8 +332,8 @@ async def on_message(message):
                 else:
                     avg_level = 10  # New players get easier trainers
 
-                # Trainer uses the wild Pokemon at a random level (1-15)
-                trainer_pokemon_level = random.randint(1, 15)
+                # Trainer uses the wild Pokemon at a random level (1-10)
+                trainer_pokemon_level = random.randint(1, 10)
 
                 trainer_team = [{
                     'pokemon_id': pokemon['id'],
@@ -4715,7 +4715,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="🎯 Catching Pokemon",
-        value="Type `ball` when a Pokemon spawns to catch it!\n• 25% chance for a trainer battle\n• Win to claim the Pokemon! (+10 XP)",
+        value="Type `ball` when a Pokemon spawns to catch it!\n• 15% chance for a trainer battle\n• Win to claim the Pokemon! (+10 XP)",
         inline=False
     )
 
