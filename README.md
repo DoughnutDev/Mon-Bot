@@ -41,19 +41,11 @@ A Discord bot that spawns random Pokemon for users to catch! Type `ball` in chat
 
 ## Screenshots
 
-When a Pokemon spawns, users see:
-```
-🎮 A wild Pokemon appeared!
-[Pokemon sprite]
-Type `ball` to catch it!
-```
+### When a Pokemon spawns, users see:
+![Pokemon Appeared](screenshots/pokemon_appeared.png)
 
-When caught:
-```
-✨ [User] caught [Pokemon]!
-Type: Fire, Flying
-Pokedex #: 006
-```
+### When caught:
+![Pokemon Captured](screenshots/pokemon_captured.png)
 
 ## Technology Stack
 
