@@ -751,6 +751,25 @@ async def get_species_level(user_id: int, guild_id: int, pokemon_id: int, pokemo
         return level if level else 1
 
 
+async def get_multiple_species_levels(user_id: int, guild_id: int, pokemon_ids: list) -> dict:
+    """Get levels for multiple Pokemon species at once. Returns dict of {pokemon_id: level}"""
+    if not pool or not pokemon_ids:
+        return {pid: 1 for pid in pokemon_ids}
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT pokemon_id, level FROM pokemon_species_stats
+            WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = ANY($3)
+        ''', user_id, guild_id, pokemon_ids)
+
+        # Create dict with levels, defaulting to 1 if not found
+        level_dict = {pid: 1 for pid in pokemon_ids}
+        for row in rows:
+            level_dict[row['pokemon_id']] = row['level']
+
+        return level_dict
+
+
 async def add_species_xp(user_id: int, guild_id: int, pokemon_id: int, pokemon_name: str, xp_amount: int, is_win: bool = True) -> Dict:
     """Add XP to a Pokemon species and handle level ups"""
     if not pool:

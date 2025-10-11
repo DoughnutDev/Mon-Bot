@@ -622,16 +622,13 @@ class GymSelectView(View):
         gym_key = self.gym_select.values[0]
         gym_data = gym_leaders.get_gym_leader(gym_key)
 
-        # Check if already defeated
-        if gym_key in self.user_badges:
-            await interaction.response.send_message(
-                f"✅ You've already earned the **{gym_data['badge']}**! (You can still challenge them again for fun, but won't earn rewards)",
-                ephemeral=True
-            )
-            # Allow re-challenge but note it won't give rewards
-
-        # Defer response
+        # Defer response FIRST before any database operations
         await interaction.response.defer()
+
+        # Check if already defeated (after defer)
+        if gym_key in self.user_badges:
+            # Just add a note, don't prevent the challenge
+            pass
 
         # Load user's Pokemon
         user_pokemon = await db.get_user_pokemon_for_trade(self.user.id, self.guild_id)
@@ -640,14 +637,26 @@ class GymSelectView(View):
             await interaction.followup.send(f"❌ You don't have any Pokemon to battle with!", ephemeral=True)
             return
 
+        # Get all levels in one batch query
+        pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
+        level_dict = await db.get_multiple_species_levels(self.user.id, self.guild_id, pokemon_ids)
+
+        # Add levels to Pokemon and sort
+        pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
+        pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
         # Create gym battle view
-        gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, user_pokemon, gym_key in self.user_badges)
+        gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, pokemon_with_levels, gym_key in self.user_badges)
 
         # Create Pokemon selection dropdown
         pokemon_options = []
-        for pokemon in user_pokemon[:25]:  # Max 25 options
-            label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-            pokemon_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+        for pokemon in pokemon_with_levels[:25]:  # Max 25 options
+            label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            pokemon_options.append(discord.SelectOption(
+                label=label,
+                value=str(pokemon['id']),
+                emoji="⚔️"  # Battle emoji for gym battles
+            ))
 
         gym_battle_view.pokemon_select.options = pokemon_options
 
@@ -1216,6 +1225,8 @@ class GymBattleView(View):
         stat_changes = pkmn.get_move_stat_changes(move_name)
 
         if not stat_changes:
+            # Debug: log what we're looking for
+            print(f"DEBUG: No stat changes found for move '{move_name}' (original: '{move['name']}')")
             return ""
 
         messages = []
@@ -1579,6 +1590,22 @@ class BattleView(View):
         self.p2_level = 1
         self.turn_count = 0
 
+        # Stat stages (player 1 and player 2)
+        self.p1_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+        self.p2_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+
+        # Status conditions
+        self.p1_status = None
+        self.p1_status_turns = 0
+        self.p2_status = None
+        self.p2_status_turns = 0
+
     async def load_pokemon(self):
         """Load Pokemon for both users"""
         self.user1_pokemon = await db.get_user_pokemon_for_trade(self.user1.id, self.guild_id)
@@ -1594,20 +1621,56 @@ class BattleView(View):
             'speed': base['speed']
         }
 
-    def calculate_damage(self, move: dict, attacker_stats: dict, defender_stats: dict, defender_types: list) -> int:
-        """Calculate damage from a move"""
-        # Check accuracy
-        if random.randint(1, 100) > move['accuracy']:
-            return 0  # Miss!
+    def calculate_damage(self, move: dict, attacker_stats: dict, defender_stats: dict, defender_types: list, attacker_stat_stages: dict, defender_stat_stages: dict, attacker_status: str = None) -> tuple:
+        """Calculate damage from a move. Returns (damage, is_crit, hit_success)"""
+        # Check accuracy (with accuracy/evasion stages)
+        accuracy = move.get('accuracy', 100)
+        accuracy_stage = attacker_stat_stages.get('accuracy', 0)
+        evasion_stage = defender_stat_stages.get('evasion', 0)
+        net_accuracy_stage = accuracy_stage - evasion_stage
+        accuracy_multiplier = pkmn.get_stat_stage_multiplier(net_accuracy_stage)
+
+        final_accuracy = min(100, accuracy * accuracy_multiplier)
+        if random.randint(1, 100) > final_accuracy:
+            return 0, False, False  # Miss!
+
+        # Check if it's a status move
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            return 0, False, True  # Status move, no damage but it "hit"
+
+        # Check critical hit
+        is_crit = random.random() < 0.0625  # 6.25% crit chance
 
         # Base damage from move power
         if move['damage_class'] == 'physical':
-            base_damage = max(1, int((move['power'] * attacker_stats['attack']) / (defender_stats['defense'] * 2)))
+            attack = attacker_stats['attack']
+            defense = defender_stats['defense']
+            attack_stage = attacker_stat_stages.get('attack', 0)
+            defense_stage = defender_stat_stages.get('defense', 0)
+
+            # Apply burn to physical attacks (halves attack)
+            if attacker_status == 'burn' and not is_crit:
+                attack = int(attack * 0.5)
+
+            # Apply stat stages
+            attack = pkmn.apply_stat_stages(attack, attack_stage)
+            defense = pkmn.apply_stat_stages(defense, defense_stage)
+
+            base_damage = max(1, int((move['power'] * attack) / (defense * 2)))
         elif move['damage_class'] == 'special':
             # Use attack as special attack for simplicity
-            base_damage = max(1, int((move['power'] * attacker_stats['attack']) / (defender_stats['defense'] * 2)))
+            attack = attacker_stats['attack']
+            defense = defender_stats['defense']
+            attack_stage = attacker_stat_stages.get('special-attack', 0)
+            defense_stage = defender_stat_stages.get('special-defense', 0)
+
+            # Apply stat stages
+            attack = pkmn.apply_stat_stages(attack, attack_stage)
+            defense = pkmn.apply_stat_stages(defense, defense_stage)
+
+            base_damage = max(1, int((move['power'] * attack) / (defense * 2)))
         else:
-            return 0  # Status move
+            return 0, False, True
 
         # Type effectiveness
         type_mult = pkmn.get_type_effectiveness([move['type']], defender_types)
@@ -1615,11 +1678,121 @@ class BattleView(View):
         # Random variation (85-100%)
         random_mult = random.uniform(0.85, 1.0)
 
-        # Critical hit (6.25% chance for 1.5x)
-        crit_mult = 1.5 if random.random() < 0.0625 else 1.0
+        # Critical hit
+        crit_mult = 1.5 if is_crit else 1.0
 
         damage = int(base_damage * type_mult * random_mult * crit_mult)
-        return max(1, damage)
+        return max(1, damage), is_crit, True
+
+    def apply_stat_change(self, target_stat_stages: dict, stat: str, stages: int) -> tuple:
+        """Apply stat change and return message and if it was successful"""
+        old_stage = target_stat_stages.get(stat, 0)
+        new_stage = max(-6, min(6, old_stage + stages))
+
+        if new_stage == old_stage:
+            # Stat is already at max/min
+            if stages > 0:
+                return f"won't go higher!", False
+            else:
+                return f"won't go lower!", False
+
+        target_stat_stages[stat] = new_stage
+
+        # Generate message
+        stat_name = stat.replace('-', ' ').title()
+        if stages > 0:
+            if stages == 1:
+                return f"{stat_name} rose!", True
+            elif stages == 2:
+                return f"{stat_name} rose sharply!", True
+            else:
+                return f"{stat_name} rose drastically!", True
+        else:
+            if stages == -1:
+                return f"{stat_name} fell!", True
+            elif stages == -2:
+                return f"{stat_name} fell harshly!", True
+            else:
+                return f"{stat_name} fell severely!", True
+
+    def execute_status_move(self, move: dict, is_p1_move: bool) -> str:
+        """Execute a status move and return battle log message"""
+        move_name = move['name'].lower()
+        stat_changes = pkmn.get_move_stat_changes(move_name)
+
+        if not stat_changes:
+            # Debug: log what we're looking for
+            print(f"DEBUG: No stat changes found for move '{move_name}' (original: '{move['name']}')")
+            return ""
+
+        messages = []
+
+        # Determine which Pokemon is using the move
+        if is_p1_move:
+            user_name = self.user1_choice['pokemon_name']
+        else:
+            user_name = self.user2_choice['pokemon_name']
+
+        # Apply primary stat change
+        if stat_changes['target'] == 'user':
+            # Buff user's stats
+            if is_p1_move:
+                message, success = self.apply_stat_change(
+                    self.p1_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.p2_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+        else:
+            # Debuff opponent's stats
+            if is_p1_move:
+                message, success = self.apply_stat_change(
+                    self.p2_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.user2_choice['pokemon_name']}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.p1_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.user1_choice['pokemon_name']}**'s {message}")
+
+        # Apply secondary stat change if exists
+        if 'secondary' in stat_changes:
+            secondary = stat_changes['secondary']
+            if stat_changes['target'] == 'user':
+                if is_p1_move:
+                    message, success = self.apply_stat_change(
+                        self.p1_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+                else:
+                    message, success = self.apply_stat_change(
+                        self.p2_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+
+        return " ".join(messages)
 
     async def start_battle(self):
         """Initialize battle after both players are ready"""
@@ -1723,48 +1896,66 @@ class BattleView(View):
             attacker_stats = self.p1_stats
             defender_stats = self.p2_stats
             defender_types = self.user2_choice.get('types', ['normal'])
+            attacker_stat_stages = self.p1_stat_stages
+            defender_stat_stages = self.p2_stat_stages
+            attacker_status = self.p1_status
         else:
             attacker_name = self.user2_choice['pokemon_name']
             defender_name = self.user1_choice['pokemon_name']
             attacker_stats = self.p2_stats
             defender_stats = self.p1_stats
             defender_types = self.user1_choice.get('types', ['normal'])
-
-        # Calculate damage
-        damage = self.calculate_damage(move, attacker_stats, defender_stats, defender_types)
+            attacker_stat_stages = self.p2_stat_stages
+            defender_stat_stages = self.p1_stat_stages
+            attacker_status = self.p2_status
 
         # Build turn log
         self.battle_log.append(f"**Turn {self.turn_count}:**")
-        self.battle_log.append(f"⚡ **{attacker_name}** used **{move['name']}**!")
 
-        if damage == 0:
-            self.battle_log.append(f"💨 The attack missed!")
+        # Check if it's a status move
+        if move['damage_class'] == 'status':
+            self.battle_log.append(f"**{attacker_name}** used **{move['name']}**!")
+            status_msg = self.execute_status_move(move, is_p1_move=(attacker == 1))
+            if status_msg:
+                self.battle_log.append(status_msg)
         else:
-            # Apply damage
-            if attacker == 1:
-                self.p2_hp -= damage
-                self.p2_hp = max(0, self.p2_hp)
+            # Calculate damage
+            damage, is_crit, hit = self.calculate_damage(move, attacker_stats, defender_stats, defender_types, attacker_stat_stages, defender_stat_stages, attacker_status)
+
+            self.battle_log.append(f"⚡ **{attacker_name}** used **{move['name']}**!")
+
+            if not hit:
+                self.battle_log.append(f"💨 The attack missed!")
             else:
-                self.p1_hp -= damage
-                self.p1_hp = max(0, self.p1_hp)
+                # Apply damage
+                if attacker == 1:
+                    self.p2_hp -= damage
+                    self.p2_hp = max(0, self.p2_hp)
+                else:
+                    self.p1_hp -= damage
+                    self.p1_hp = max(0, self.p1_hp)
 
-            # Type effectiveness message
-            type_eff = pkmn.get_type_effectiveness([move['type']], defender_types)
-            if type_eff == 0:
-                effect_text = "It has no effect..."
-            elif type_eff > 1:
-                effect_text = "It's super effective!"
-            elif type_eff < 1:
-                effect_text = "It's not very effective..."
-            else:
-                effect_text = ""
+                crit_text = " **Critical hit!**" if is_crit else ""
+                self.battle_log.append(f"Dealt {damage} damage!{crit_text}")
 
-            if effect_text:
-                self.battle_log.append(f"✨ {effect_text}")
+                # Type effectiveness message
+                type_eff = pkmn.get_type_effectiveness([move['type']], defender_types)
+                if type_eff == 0:
+                    effect_text = "It has no effect..."
+                elif type_eff > 1:
+                    effect_text = "It's super effective!"
+                elif type_eff < 1:
+                    effect_text = "It's not very effective..."
+                else:
+                    effect_text = ""
 
-            current_hp = self.p2_hp if attacker == 1 else self.p1_hp
-            max_hp = self.p2_max_hp if attacker == 1 else self.p1_max_hp
-            self.battle_log.append(f"💥 Dealt {damage} damage! **{defender_name}** HP: {current_hp}/{max_hp}")
+                if effect_text:
+                    self.battle_log.append(f"✨ {effect_text}")
+
+                # Show HP status
+                current_hp = self.p2_hp if attacker == 1 else self.p1_hp
+                max_hp = self.p2_max_hp if attacker == 1 else self.p1_max_hp
+                self.battle_log.append(f"**{defender_name}** HP: {current_hp}/{max_hp}")
 
         self.battle_log.append("")
 
@@ -2987,16 +3178,42 @@ async def battle(interaction: discord.Interaction, user: discord.Member):
         await interaction.followup.send(f"❌ {user.display_name} doesn't have any Pokemon to battle with!")
         return
 
+    # Get levels in batch for both users
+    user1_ids = [p['pokemon_id'] for p in view.user1_pokemon]
+    user2_ids = [p['pokemon_id'] for p in view.user2_pokemon]
+
+    user1_levels = await db.get_multiple_species_levels(interaction.user.id, interaction.guild.id, user1_ids)
+    user2_levels = await db.get_multiple_species_levels(user.id, interaction.guild.id, user2_ids)
+
+    # Add levels and sort
+    user1_with_levels = [{**p, 'level': user1_levels.get(p['pokemon_id'], 1)} for p in view.user1_pokemon]
+    user1_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+    user2_with_levels = [{**p, 'level': user2_levels.get(p['pokemon_id'], 1)} for p in view.user2_pokemon]
+    user2_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+    # Update view's pokemon lists with level info
+    view.user1_pokemon = user1_with_levels
+    view.user2_pokemon = user2_with_levels
+
     # Populate dropdown options (max 25 options per dropdown)
     user1_options = []
-    for pokemon in view.user1_pokemon[:25]:
-        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user1_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+    for pokemon in user1_with_levels[:25]:
+        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user1_options.append(discord.SelectOption(
+            label=label,
+            value=str(pokemon['id']),
+            emoji="⚔️"
+        ))
 
     user2_options = []
-    for pokemon in view.user2_pokemon[:25]:
-        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user2_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+    for pokemon in user2_with_levels[:25]:
+        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user2_options.append(discord.SelectOption(
+            label=label,
+            value=str(pokemon['id']),
+            emoji="⚔️"
+        ))
 
     # Set dropdown options
     view.user1_select.options = user1_options
@@ -3154,16 +3371,42 @@ async def trade(interaction: discord.Interaction, user: discord.Member):
         await interaction.followup.send(f"❌ {user.display_name} doesn't have any Pokemon to trade!")
         return
 
+    # Get levels in batch for both users
+    user1_ids = [p['pokemon_id'] for p in view.user1_pokemon]
+    user2_ids = [p['pokemon_id'] for p in view.user2_pokemon]
+
+    user1_levels = await db.get_multiple_species_levels(interaction.user.id, interaction.guild.id, user1_ids)
+    user2_levels = await db.get_multiple_species_levels(user.id, interaction.guild.id, user2_ids)
+
+    # Add levels and sort
+    user1_with_levels = [{**p, 'level': user1_levels.get(p['pokemon_id'], 1)} for p in view.user1_pokemon]
+    user1_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+    user2_with_levels = [{**p, 'level': user2_levels.get(p['pokemon_id'], 1)} for p in view.user2_pokemon]
+    user2_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+    # Update view's pokemon lists with level info
+    view.user1_pokemon = user1_with_levels
+    view.user2_pokemon = user2_with_levels
+
     # Populate dropdown options (max 25 options per dropdown)
     user1_options = []
-    for pokemon in view.user1_pokemon[:25]:
-        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user1_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+    for pokemon in user1_with_levels[:25]:
+        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user1_options.append(discord.SelectOption(
+            label=label,
+            value=str(pokemon['id']),
+            emoji="🔄"  # Trade/exchange emoji
+        ))
 
     user2_options = []
-    for pokemon in view.user2_pokemon[:25]:
-        label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-        user2_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+    for pokemon in user2_with_levels[:25]:
+        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        user2_options.append(discord.SelectOption(
+            label=label,
+            value=str(pokemon['id']),
+            emoji="🔄"
+        ))
 
     # Set dropdown options
     view.user1_select.options = user1_options
