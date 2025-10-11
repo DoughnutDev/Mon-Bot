@@ -3093,6 +3093,173 @@ async def count(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='stats', description='View detailed stats for one of your Pokemon')
+async def stats(interaction: discord.Interaction):
+    """View detailed stats for a specific Pokemon"""
+    # Defer IMMEDIATELY before any checks
+    await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+
+    # Get user's Pokemon
+    user_pokemon = await db.get_user_pokemon_for_trade(user_id, guild_id)
+
+    if not user_pokemon:
+        await interaction.followup.send("You don't have any Pokemon yet! Catch some Pokemon first using `/catch`!", ephemeral=True)
+        return
+
+    # Get unique Pokemon species (no duplicates in the dropdown)
+    seen_ids = set()
+    unique_pokemon = []
+    for pokemon in user_pokemon:
+        if pokemon['pokemon_id'] not in seen_ids:
+            seen_ids.add(pokemon['pokemon_id'])
+            unique_pokemon.append(pokemon)
+
+    # Get levels for all unique Pokemon
+    pokemon_ids = [p['pokemon_id'] for p in unique_pokemon]
+    level_dict = await db.get_multiple_species_levels(user_id, guild_id, pokemon_ids)
+
+    # Add levels and sort by level (highest first)
+    pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in unique_pokemon]
+    pokemon_with_levels.sort(key=lambda p: (p['level'], p['pokemon_id']), reverse=True)
+
+    # Create selection menu (max 25 options)
+    options = []
+    for pokemon in pokemon_with_levels[:25]:
+        label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+        options.append(discord.SelectOption(
+            label=label,
+            value=str(pokemon['pokemon_id']),
+            emoji="📊"
+        ))
+
+    select = Select(placeholder="Select a Pokemon to view stats...", options=options, custom_id="stats_select")
+
+    async def select_callback(select_interaction: discord.Interaction):
+        if select_interaction.user.id != user_id:
+            await select_interaction.response.send_message("This isn't your stats menu!", ephemeral=True)
+            return
+
+        selected_pokemon_id = int(select.values[0])
+
+        # Get detailed stats from database
+        species_stats = await db.get_pokemon_species_stats(user_id, guild_id, selected_pokemon_id)
+
+        if not species_stats:
+            # Pokemon not in species_stats table yet (no battles)
+            species_stats = {
+                'pokemon_id': selected_pokemon_id,
+                'pokemon_name': next((p['pokemon_name'] for p in pokemon_with_levels if p['pokemon_id'] == selected_pokemon_id), 'Unknown'),
+                'level': 1,
+                'experience': 0,
+                'battles_won': 0,
+                'battles_lost': 0
+            }
+
+        # Get Pokemon data from PokeAPI or local data
+        pokemon_name = species_stats['pokemon_name']
+        pokemon_id = species_stats['pokemon_id']
+        level = species_stats['level']
+        experience = species_stats['experience']
+        battles_won = species_stats['battles_won']
+        battles_lost = species_stats['battles_lost']
+
+        # Calculate base stats and battle stats
+        base_stats = pkmn.get_pokemon_stats(pokemon_id)
+        battle_stats = pkmn.calculate_battle_stats(base_stats, level)
+        types = pkmn.get_pokemon_types(pokemon_id)
+        sprite = pkmn.get_pokemon_sprite(pokemon_id)
+
+        # Calculate XP progress
+        current_level_xp = experience % 100
+        xp_needed = 100
+        xp_progress = f"{current_level_xp}/{xp_needed}"
+
+        # Calculate win rate
+        total_battles = battles_won + battles_lost
+        win_rate = (battles_won / total_battles * 100) if total_battles > 0 else 0
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"#{pokemon_id:03d} {pokemon_name.title()}",
+            description=f"**Level {level}** | {' / '.join([t.title() for t in types])}",
+            color=discord.Color.blue()
+        )
+
+        if sprite:
+            embed.set_thumbnail(url=sprite)
+
+        # XP and Level Progress
+        embed.add_field(
+            name="📈 Experience",
+            value=f"**Total XP:** {experience}\n**Progress:** {xp_progress} XP to next level",
+            inline=True
+        )
+
+        # Battle Record
+        embed.add_field(
+            name="⚔️ Battle Record",
+            value=f"**Wins:** {battles_won}\n**Losses:** {battles_lost}\n**Win Rate:** {win_rate:.1f}%",
+            inline=True
+        )
+
+        # Blank field for spacing
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        # Battle Stats (HP, ATK, DEF, SPD)
+        stats_text = (
+            f"**HP:** {battle_stats['hp']}\n"
+            f"**Attack:** {battle_stats['attack']}\n"
+            f"**Defense:** {battle_stats['defense']}\n"
+            f"**Sp. Atk:** {battle_stats.get('special-attack', battle_stats.get('special_attack', 0))}\n"
+            f"**Sp. Def:** {battle_stats.get('special-defense', battle_stats.get('special_defense', 0))}\n"
+            f"**Speed:** {battle_stats['speed']}"
+        )
+        embed.add_field(
+            name="💪 Battle Stats",
+            value=stats_text,
+            inline=True
+        )
+
+        # Base Stats
+        base_stats_text = (
+            f"**HP:** {base_stats['hp']}\n"
+            f"**Attack:** {base_stats['attack']}\n"
+            f"**Defense:** {base_stats['defense']}\n"
+            f"**Sp. Atk:** {base_stats.get('special-attack', base_stats.get('special_attack', 0))}\n"
+            f"**Sp. Def:** {base_stats.get('special-defense', base_stats.get('special_defense', 0))}\n"
+            f"**Speed:** {base_stats['speed']}"
+        )
+        embed.add_field(
+            name="📊 Base Stats",
+            value=base_stats_text,
+            inline=True
+        )
+
+        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+
+        await select_interaction.response.send_message(embed=embed, ephemeral=True)
+
+    select.callback = select_callback
+
+    view = View()
+    view.add_item(select)
+
+    embed = discord.Embed(
+        title="📊 Pokemon Stats",
+        description="Select a Pokemon to view its detailed stats, level, and battle record!",
+        color=discord.Color.green()
+    )
+
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='battlepass', description='View your Season 1 battlepass progress')
 async def battlepass(interaction: discord.Interaction):
     """View battlepass progress"""

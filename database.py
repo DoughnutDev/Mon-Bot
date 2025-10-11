@@ -1425,3 +1425,20 @@ async def get_badge_count(user_id: int, guild_id: int) -> int:
         ''', user_id, guild_id)
 
         return count if count else 0
+
+
+async def get_pokemon_species_stats(user_id: int, guild_id: int, pokemon_id: int) -> Optional[Dict]:
+    """Get detailed stats for a Pokemon species including level, XP, and battle record"""
+    if not pool:
+        return None
+
+    async with pool.acquire() as conn:
+        stats = await conn.fetchrow('''
+            SELECT pokemon_id, pokemon_name, level, experience, battles_won, battles_lost
+            FROM pokemon_species_stats
+            WHERE user_id = $1 AND guild_id = $2 AND pokemon_id = $3
+        ''', user_id, guild_id, pokemon_id)
+
+        if stats:
+            return dict(stats)
+        return None
