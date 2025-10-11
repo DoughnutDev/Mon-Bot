@@ -946,46 +946,45 @@ class GymBattleView(View):
         # Get selected Pokemon IDs
         selected_ids = [int(val) for val in self.pokemon_select.values]
 
-        # Build user's team
-        async with aiohttp.ClientSession() as session:
-            for selected_id in selected_ids:
-                selected_pokemon = next((p for p in self.user_pokemon if p['id'] == selected_id), None)
+        # Build user's team (use local data for speed)
+        for selected_id in selected_ids:
+            selected_pokemon = next((p for p in self.user_pokemon if p['id'] == selected_id), None)
 
-                if not selected_pokemon:
-                    continue
+            if not selected_pokemon:
+                continue
 
-                # Fetch Pokemon data from PokeAPI
-                async with session.get(f'https://pokeapi.co/api/v2/pokemon/{selected_pokemon["pokemon_id"]}') as resp:
-                    if resp.status != 200:
-                        continue
-                    poke_data = await resp.json()
+            # Use local Pokemon data loader (much faster than API calls)
+            pokemon_id = selected_pokemon['pokemon_id']
 
-                # Get Pokemon types
-                types = [t['type']['name'] for t in poke_data['types']]
+            # Get Pokemon types
+            types = poke_data.get_pokemon_types(pokemon_id)
 
-                # Get 4 random moves
-                moves = await fetch_pokemon_moves(session, selected_pokemon['pokemon_id'], 4)
+            # Get species level
+            species_level = await db.get_species_level(self.user.id, self.guild_id, pokemon_id, selected_pokemon['pokemon_name'])
 
-                # Get species level
-                species_level = await db.get_species_level(self.user.id, self.guild_id, selected_pokemon['pokemon_id'], selected_pokemon['pokemon_name'])
+            # Get 4 moves for this level
+            moves = poke_data.get_pokemon_moves(pokemon_id, num_moves=4, max_level=species_level)
 
-                # Calculate stats
-                base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
-                user_stats = pkmn.calculate_battle_stats(base_stats, species_level)
+            # Get base stats and calculate battle stats
+            base_stats = poke_data.get_pokemon_stats(pokemon_id)
+            user_stats = pkmn.calculate_battle_stats(base_stats, species_level)
 
-                # Add to team
-                self.user_team.append({
-                    'id': selected_pokemon['id'],
-                    'pokemon_name': selected_pokemon['pokemon_name'],
-                    'pokemon_id': selected_pokemon['pokemon_id'],
-                    'types': types,
-                    'moves': moves,
-                    'level': species_level,
-                    'stats': user_stats,
-                    'sprite': poke_data['sprites']['front_default'],
-                    'max_hp': user_stats['hp'],
-                    'current_hp': user_stats['hp']
-                })
+            # Get sprite
+            sprite = poke_data.get_pokemon_sprite(pokemon_id)
+
+            # Add to team
+            self.user_team.append({
+                'id': selected_pokemon['id'],
+                'pokemon_name': selected_pokemon['pokemon_name'],
+                'pokemon_id': pokemon_id,
+                'types': types,
+                'moves': moves,
+                'level': species_level,
+                'stats': user_stats,
+                'sprite': sprite,
+                'max_hp': user_stats['hp'],
+                'current_hp': user_stats['hp']
+            })
 
         if not self.user_team:
             await interaction.followup.send("❌ Error loading Pokemon team!", ephemeral=True)
