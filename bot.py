@@ -41,6 +41,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Global variables
 active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datetime}}
 active_trainer_battles = {}  # {user_id: {'trainer': trainer_data, 'pokemon': wild_pokemon, 'channel_id': channel_id}}
+last_guild_spawn = {}  # {guild_id: datetime} - Track last spawn per guild to guarantee max spawn interval
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -576,8 +577,15 @@ async def spawn_pokemon():
         if not channel_ids:
             continue
 
-        # Random chance to spawn (creates randomness)
-        if random.random() > 0.15:  # 15% chance per minute = avg ~6-7 min
+        # Check if guild has gone too long without a spawn (10 minutes max)
+        force_spawn = False
+        if guild_id in last_guild_spawn:
+            time_since_last = (datetime.now() - last_guild_spawn[guild_id]).total_seconds()
+            if time_since_last > 600:  # 10 minutes = 600 seconds
+                force_spawn = True
+
+        # Random chance to spawn (creates randomness), or force if it's been too long
+        if not force_spawn and random.random() > 0.25:  # 25% chance per minute = avg ~4 min
             continue
 
         # Pick a random channel from this guild's configured channels
@@ -599,10 +607,14 @@ async def spawn_pokemon():
 
             if pokemon:
                 # Store active spawn with timestamp
+                spawn_time = datetime.now()
                 active_spawns[str(channel.id)] = {
                     'pokemon': pokemon,
-                    'spawn_time': datetime.now()
+                    'spawn_time': spawn_time
                 }
+
+                # Track last spawn time for this guild
+                last_guild_spawn[guild_id] = spawn_time
 
                 # Send spawn message
                 embed = create_spawn_embed(pokemon)
