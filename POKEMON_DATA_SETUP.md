@@ -13,7 +13,7 @@ Pre-fetches all Gen 1 Pokemon data locally instead of calling PokeAPI every time
 
 ### Step 1: Run the Fetch Script
 ```bash
-python fetch_pokemon_data.py
+python utils/fetch_pokemon_data.py
 ```
 
 This will:
@@ -35,7 +35,8 @@ Your bot will automatically use the local data when available. If the file isn't
 ## File Structure
 ```
 Mon-Bot/
-├── fetch_pokemon_data.py       # Run once to generate data
+├── utils/
+│   └── fetch_pokemon_data.py   # Run once to generate data
 ├── pokemon_data_loader.py      # Module that loads the data
 ├── pokemon_data.json           # The actual data (generated)
 └── bot.py                      # Uses local data automatically
@@ -46,6 +47,8 @@ Only if:
 - PokeAPI updates their data (rare)
 - You want to add more Pokemon
 - The JSON file gets corrupted
+
+**Note:** Run the script from the project root directory so it saves `pokemon_data.json` in the correct location.
 
 ## Legal Notice
 Pokemon data sourced from [PokeAPI](https://pokeapi.co)
