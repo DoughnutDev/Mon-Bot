@@ -827,7 +827,7 @@ async def add_species_xp(user_id: int, guild_id: int, pokemon_id: int, pokemon_n
         }
 
 
-# Battlepass functions
+# Battlepass functions (LEGACY - kept for historical data, no longer actively used)
 
 async def _initialize_season1_rewards(conn):
     """Initialize Season 1 battlepass rewards"""
@@ -915,7 +915,7 @@ async def _initialize_shop_items(conn):
 
 
 async def add_xp(user_id: int, guild_id: int, xp_amount: int = 10, season: int = 1):
-    """Add XP to a user's battlepass and handle level ups"""
+    """DEPRECATED: Battlepass XP system removed - quests now reward currency directly"""
     if not pool:
         return None
 
@@ -977,7 +977,7 @@ async def add_xp(user_id: int, guild_id: int, xp_amount: int = 10, season: int =
 
 
 async def get_battlepass_progress(user_id: int, guild_id: int, season: int = 1) -> Dict:
-    """Get user's battlepass progress"""
+    """DEPRECATED: Battlepass system removed - kept for legacy data access only"""
     if not pool:
         return {'level': 1, 'xp': 0, 'season': season}
 
@@ -995,7 +995,7 @@ async def get_battlepass_progress(user_id: int, guild_id: int, season: int = 1) 
 
 
 async def get_battlepass_rewards(season: int = 1) -> List[Dict]:
-    """Get all rewards for a season"""
+    """DEPRECATED: Battlepass system removed - kept for legacy data access only"""
     if not pool:
         return []
 
@@ -1026,7 +1026,7 @@ async def add_pack(user_id: int, guild_id: int, pack_name: str, pack_config: dic
 
 
 async def add_packs(user_id: int, guild_id: int, pack_tier: int):
-    """Add pack(s) to user's inventory based on battlepass tier"""
+    """DEPRECATED: Was used by battlepass rewards - kept for legacy compatibility"""
     if not pool:
         return
 
