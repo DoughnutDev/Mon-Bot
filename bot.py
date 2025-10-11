@@ -2283,15 +2283,27 @@ async def quests(interaction: discord.Interaction):
                 else:
                     all_complete = False
 
+    # Calculate time until midnight (quest reset)
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    time_until_reset = tomorrow - now
+
+    hours = int(time_until_reset.total_seconds() // 3600)
+    minutes = int((time_until_reset.total_seconds() % 3600) // 60)
+
+    reset_text = f"Resets in {hours}h {minutes}m"
+
     # Add summary
     if all_complete:
         embed.add_field(
             name="🎉 All Quests Complete!",
-            value=f"You've earned **{total_xp_earned} XP** today!\nCome back tomorrow for new quests.",
+            value=f"You've earned **{total_xp_earned} XP** today!\nNew quests available after reset.",
             inline=False
         )
+        embed.set_footer(text=f"⏰ {reset_text}")
     else:
-        embed.set_footer(text="Complete quests to earn battlepass XP! Quests reset daily.")
+        embed.set_footer(text=f"⏰ {reset_text}")
 
     await interaction.followup.send(embed=embed)
 
