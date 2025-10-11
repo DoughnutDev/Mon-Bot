@@ -717,6 +717,9 @@ class GymSelectView(View):
 
         gym_battle_view.pokemon_select.options = pokemon_options
 
+        # Delete the gym selection message
+        await interaction.delete_original_response()
+
         embed = gym_battle_view.create_selection_embed()
         await interaction.followup.send(embed=embed, view=gym_battle_view)
 
