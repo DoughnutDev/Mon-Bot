@@ -63,13 +63,21 @@ class TrainerBattleView(View):
         )
 
         # Populate dropdown with user's Pokemon (limit to 25 for Discord)
-        for pokemon in user_pokemon[:25]:
-            level = pokemon.get('level', 1)
-            self.pokemon_select.add_option(
-                label=f"{pokemon['pokemon_name']} (Lv.{level})",
-                value=str(pokemon['id']),
-                description=f"#{pokemon['pokemon_id']} - {', '.join(pokemon.get('pokemon_types', ['Unknown']))}"
-            )
+        # Deduplicate by pokemon_id to show only unique species
+        seen_species = set()
+        for pokemon in user_pokemon:
+            if len(seen_species) >= 25:  # Discord limit
+                break
+
+            species_id = pokemon['pokemon_id']
+            if species_id not in seen_species:
+                seen_species.add(species_id)
+                level = pokemon.get('level', 1)
+                self.pokemon_select.add_option(
+                    label=f"{pokemon['pokemon_name']} (Lv.{level})",
+                    value=str(pokemon['id']),
+                    description=f"#{pokemon['pokemon_id']} - {', '.join(pokemon.get('pokemon_types', ['Unknown']))}"
+                )
 
         self.pokemon_select.callback = self.pokemon_selected
         self.add_item(self.pokemon_select)

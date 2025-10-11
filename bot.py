@@ -805,15 +805,22 @@ class GymSelectView(View):
         # Create gym battle view
         gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, pokemon_with_levels, gym_key in self.user_badges)
 
-        # Create Pokemon selection dropdown
+        # Create Pokemon selection dropdown (deduplicate by species)
         pokemon_options = []
-        for pokemon in pokemon_with_levels[:25]:  # Max 25 options
-            label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
-            pokemon_options.append(discord.SelectOption(
-                label=label,
-                value=str(pokemon['id']),
-                emoji="⚔️"  # Battle emoji for gym battles
-            ))
+        seen_species = set()
+        for pokemon in pokemon_with_levels:
+            if len(pokemon_options) >= 25:  # Max 25 options
+                break
+
+            species_id = pokemon['pokemon_id']
+            if species_id not in seen_species:
+                seen_species.add(species_id)
+                label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+                pokemon_options.append(discord.SelectOption(
+                    label=label,
+                    value=str(pokemon['id']),
+                    emoji="⚔️"  # Battle emoji for gym battles
+                ))
 
         gym_battle_view.pokemon_select.options = pokemon_options
 
