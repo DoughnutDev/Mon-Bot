@@ -321,6 +321,15 @@ async def on_message(message):
             # Update quest progress for catching Pokemon
             quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_pokemon')
 
+            # Update quest progress for earning Pokedollars
+            earn_quest_result = await db.update_quest_progress(user_id, guild_id, 'earn_pokedollars', increment=currency_reward)
+            if earn_quest_result and earn_quest_result.get('completed_quests'):
+                if not quest_result:
+                    quest_result = earn_quest_result
+                else:
+                    quest_result['total_xp'] += earn_quest_result['total_xp']
+                    quest_result['completed_quests'].extend(earn_quest_result['completed_quests'])
+
             # Check if caught Pokemon is legendary (IDs 144-151)
             legendary_ids = [144, 145, 146, 150, 151]
             if pokemon['id'] in legendary_ids:
@@ -332,6 +341,30 @@ async def on_message(message):
                     else:
                         quest_result['total_xp'] += legendary_quest_result['total_xp']
                         quest_result['completed_quests'].extend(legendary_quest_result['completed_quests'])
+
+            # Check for starter Pokemon (IDs 1-9: Bulbasaur line, Charmander line, Squirtle line)
+            starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            if pokemon['id'] in starter_ids:
+                starter_quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_starter')
+                if starter_quest_result and starter_quest_result.get('completed_quests'):
+                    if not quest_result:
+                        quest_result = starter_quest_result
+                    else:
+                        quest_result['total_xp'] += starter_quest_result['total_xp']
+                        quest_result['completed_quests'].extend(starter_quest_result['completed_quests'])
+
+            # Check for type-specific quests
+            pokemon_types = types  # Types from the spawned Pokemon
+            for poke_type in pokemon_types:
+                type_lower = poke_type.lower()
+                quest_type = f'catch_{type_lower}'
+                type_quest_result = await db.update_quest_progress(user_id, guild_id, quest_type)
+                if type_quest_result and type_quest_result.get('completed_quests'):
+                    if not quest_result:
+                        quest_result = type_quest_result
+                    else:
+                        quest_result['total_xp'] += type_quest_result['total_xp']
+                        quest_result['completed_quests'].extend(type_quest_result['completed_quests'])
 
             # Award quest XP to battlepass if quests were completed
             if quest_result and quest_result.get('total_xp', 0) > 0:
@@ -2764,18 +2797,50 @@ async def sell(interaction: discord.Interaction):
         # Get new balance
         new_balance = await db.get_balance(user_id, guild_id)
 
+        # Update quest progress for selling Pokemon and earning Pokedollars
+        sell_quest_result = await db.update_quest_progress(user_id, guild_id, 'sell_pokemon')
+        earn_quest_result = await db.update_quest_progress(user_id, guild_id, 'earn_pokedollars', increment=sale_price)
+
+        # Combine quest results
+        total_quest_xp = 0
+        if sell_quest_result and sell_quest_result.get('total_xp', 0) > 0:
+            total_quest_xp += sell_quest_result['total_xp']
+        if earn_quest_result and earn_quest_result.get('total_xp', 0) > 0:
+            total_quest_xp += earn_quest_result['total_xp']
+
+        # Award quest XP if any
+        if total_quest_xp > 0:
+            await db.add_xp(user_id, guild_id, xp_amount=total_quest_xp)
+
         # Create success embed
         success_embed = discord.Embed(
             title="✅ Pokemon Sold!",
-            description=f"You sold **{selected_name}** for **{sale_price} Pokedollars**!",
+            description=f"You sold **{selected_name}** for **₽{sale_price}**!",
             color=discord.Color.green()
         )
 
         success_embed.add_field(
             name="New Balance",
-            value=f"{new_balance} 💰",
+            value=f"₽{new_balance:,}",
             inline=False
         )
+
+        # Add quest completion notification if any
+        if total_quest_xp > 0:
+            quest_text = []
+            if sell_quest_result and sell_quest_result.get('completed_quests'):
+                for q in sell_quest_result['completed_quests']:
+                    quest_text.append(f"✅ {q['description']}")
+            if earn_quest_result and earn_quest_result.get('completed_quests'):
+                for q in earn_quest_result['completed_quests']:
+                    quest_text.append(f"✅ {q['description']}")
+
+            if quest_text:
+                success_embed.add_field(
+                    name="🎯 Quests Completed!",
+                    value='\n'.join(quest_text) + f"\n+{total_quest_xp} BP XP",
+                    inline=False
+                )
 
         await select_interaction.response.send_message(embed=success_embed, ephemeral=True)
 
