@@ -4566,7 +4566,7 @@ async def sell(interaction: discord.Interaction):
     # Create embed showing duplicates
     embed = discord.Embed(
         title="💰 Sell Duplicate Pokemon",
-        description="Select a Pokemon to sell one copy, or use **Sell All Duplicates** to sell all extras at once!\n\n**Note:** You cannot sell your last copy of a Pokemon!",
+        description="Select a Pokemon to sell one copy at a time, or click **Sell All Duplicates** to sell all extras of every species!\n\n**Note:** You cannot sell your last copy of any Pokemon!",
         color=discord.Color.gold()
     )
 
@@ -4693,42 +4693,42 @@ async def sell(interaction: discord.Interaction):
         await select_interaction.response.send_message(embed=success_embed, ephemeral=True)
 
     async def sell_all_dupes_callback(button_interaction: discord.Interaction):
-        """Handle selling all duplicates of the selected Pokemon"""
+        """Handle selling ALL duplicates of ALL Pokemon species"""
         if button_interaction.user.id != user_id:
             await button_interaction.response.send_message("❌ This is not your sale menu!", ephemeral=True)
-            return
-
-        # Check if a Pokemon was selected
-        if not select.values:
-            await button_interaction.response.send_message("❌ Please select a Pokemon first!", ephemeral=True)
-            return
-
-        selected_name = select.values[0]
-
-        # Find all duplicates to sell (keep the first one)
-        user_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
-        catches_of_type = [c for c in user_catches if c['pokemon_name'] == selected_name]
-
-        if len(catches_of_type) < 2:
-            await button_interaction.response.send_message("❌ You can't sell your last copy of this Pokemon!", ephemeral=True)
             return
 
         # Defer response since this might take a while
         await button_interaction.response.defer(ephemeral=True)
 
-        # Sell all but the first one
-        catches_to_sell = catches_of_type[1:]  # Keep first, sell rest
+        # Get all user's Pokemon
+        user_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
+
+        # Group by species name
+        species_dict = {}
+        for catch in user_catches:
+            name = catch['pokemon_name']
+            if name not in species_dict:
+                species_dict[name] = []
+            species_dict[name].append(catch)
+
+        # Sell all duplicates (keeping first of each species)
         total_earned = 0
-        sold_count = 0
+        total_sold = 0
+        species_sold = {}  # Track how many of each species sold
 
-        for catch in catches_to_sell:
-            sale_price = await db.sell_pokemon(user_id, guild_id, catch['id'])
-            if sale_price is not None:
-                total_earned += sale_price
-                sold_count += 1
+        for species_name, catches in species_dict.items():
+            if len(catches) > 1:
+                # Sell all but the first one
+                for catch in catches[1:]:
+                    sale_price = await db.sell_pokemon(user_id, guild_id, catch['id'])
+                    if sale_price is not None:
+                        total_earned += sale_price
+                        total_sold += 1
+                        species_sold[species_name] = species_sold.get(species_name, 0) + 1
 
-        if sold_count == 0:
-            await button_interaction.followup.send("❌ Sale failed! Please try again.", ephemeral=True)
+        if total_sold == 0:
+            await button_interaction.followup.send("❌ No duplicates to sell! You only have one of each Pokemon.", ephemeral=True)
             return
 
         # Get new balance
@@ -4736,7 +4736,7 @@ async def sell(interaction: discord.Interaction):
 
         # Update quest progress for selling Pokemon and earning Pokedollars
         sell_quest_result = None
-        for _ in range(sold_count):
+        for _ in range(total_sold):
             result = await db.update_quest_progress(user_id, guild_id, 'sell_pokemon')
             if result:
                 if not sell_quest_result:
@@ -4759,11 +4759,25 @@ async def sell(interaction: discord.Interaction):
         if total_quest_currency > 0:
             await db.add_currency(user_id, guild_id, total_quest_currency)
 
-        # Create success embed
+        # Create success embed with breakdown
         success_embed = discord.Embed(
             title="✅ All Duplicates Sold!",
-            description=f"You sold **{sold_count}x {selected_name}** for **₽{total_earned:,}**!",
+            description=f"You sold **{total_sold} duplicate Pokemon** for **₽{total_earned:,}**!",
             color=discord.Color.green()
+        )
+
+        # Show breakdown of what was sold (limit to top 10)
+        breakdown_lines = []
+        for species_name, count in sorted(species_sold.items(), key=lambda x: x[1], reverse=True)[:10]:
+            breakdown_lines.append(f"• **{species_name}** x{count}")
+
+        if len(species_sold) > 10:
+            breakdown_lines.append(f"... and {len(species_sold) - 10} more species")
+
+        success_embed.add_field(
+            name="Sold Pokemon",
+            value='\n'.join(breakdown_lines),
+            inline=False
         )
 
         success_embed.add_field(
