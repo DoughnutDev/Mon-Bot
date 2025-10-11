@@ -21,6 +21,7 @@ import gym_leaders
 import pokemon_data_loader as poke_data
 # Import trainer data for random encounters
 import trainer_data
+from trainer_battle_view import TrainerBattleView
 
 # Load environment variables
 load_dotenv()
@@ -39,6 +40,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variables
 active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datetime}}
+active_trainer_battles = {}  # {user_id: {'trainer': trainer_data, 'pokemon': wild_pokemon, 'channel_id': channel_id}}
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -353,14 +355,78 @@ async def on_message(message):
                     inline=False
                 )
 
-                trainer_embed.set_footer(text="Use /battle to select your Pokemon and fight!")
+                trainer_embed.set_footer(text="Click 'Fight!' below to battle for the Pokemon!")
 
-                await message.channel.send(embed=trainer_embed)
+                # Store trainer battle data
+                active_trainer_battles[user_id] = {
+                    'trainer': trainer,
+                    'trainer_team': trainer_team,
+                    'pokemon': pokemon,
+                    'channel_id': message.channel.id,
+                    'guild_id': guild_id,
+                    'time_taken': time_taken
+                }
 
-                # Store trainer battle data for later (when user accepts)
-                # For now, just give them the Pokemon normally
-                # TODO: Implement actual battle acceptance and mechanics
-                await message.channel.send("*(Trainer battles not fully implemented yet - Pokemon caught automatically!)*")
+                # Create "Fight!" button
+                class TrainerChallengeView(View):
+                    def __init__(self, challenger_id):
+                        super().__init__(timeout=60)
+                        self.challenger_id = challenger_id
+
+                    @discord.ui.button(label="⚔️ Fight!", style=discord.ButtonStyle.danger)
+                    async def fight_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                        if interaction.user.id != self.challenger_id:
+                            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                            return
+
+                        # Check if battle still exists
+                        if self.challenger_id not in active_trainer_battles:
+                            await interaction.response.send_message("❌ This trainer battle has expired!", ephemeral=True)
+                            return
+
+                        await interaction.response.defer()
+
+                        # Get user's Pokemon for battle
+                        user_pokemon = await db.get_user_pokemon_for_trade(self.challenger_id, interaction.guild.id)
+
+                        if not user_pokemon:
+                            await interaction.followup.send("❌ You don't have any Pokemon to battle with!", ephemeral=True)
+                            return
+
+                        # Get levels
+                        pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
+                        level_dict = await db.get_multiple_species_levels(self.challenger_id, interaction.guild.id, pokemon_ids)
+
+                        # Add levels and sort
+                        pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
+                        pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+                        battle_data = active_trainer_battles[self.challenger_id]
+
+                        # Create trainer battle view
+                        trainer_battle_view = TrainerBattleView(
+                            interaction.user,
+                            interaction.guild.id,
+                            battle_data['trainer'],
+                            battle_data['trainer_team'],
+                            battle_data['pokemon'],
+                            pokemon_with_levels,
+                            battle_data['time_taken']
+                        )
+
+                        # Show Pokemon selection
+                        embed = trainer_battle_view.create_selection_embed()
+                        await interaction.followup.send(embed=embed, view=trainer_battle_view)
+
+                        # Disable this button
+                        self.fight_button.disabled = True
+                        await interaction.message.edit(view=self)
+
+                view = TrainerChallengeView(user_id)
+                await message.channel.send(embed=trainer_embed, view=view)
+
+                # Don't catch the Pokemon automatically - trainer battle will handle it
+                return
 
             # Save catch to database
             await db.add_catch(
