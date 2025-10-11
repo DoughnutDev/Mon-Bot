@@ -17,6 +17,8 @@ import pokemon_stats as pkmn
 import quest_system
 # Import gym leaders
 import gym_leaders
+# Import local Pokemon data loader (with fallback to PokeAPI)
+import pokemon_data_loader as poke_data
 
 # Load environment variables
 load_dotenv()
@@ -62,8 +64,14 @@ async def fetch_pokemon(session, pokemon_id=None):
     return None
 
 
-async def fetch_pokemon_moves(session, pokemon_id: int, num_moves: int = 4):
-    """Fetch Pokemon's moves from PokeAPI"""
+async def fetch_pokemon_moves(session, pokemon_id: int, num_moves: int = 4, max_level: int = 100):
+    """Fetch Pokemon's moves - uses local data if available, otherwise PokeAPI"""
+
+    # Try local data first
+    if poke_data.has_local_data():
+        return poke_data.get_pokemon_moves(pokemon_id, num_moves, max_level)
+
+    # Fallback to PokeAPI if local data not available
     url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
 
     try:
