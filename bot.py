@@ -4715,7 +4715,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="🎯 Catching Pokemon",
-        value="Type `ball` when a Pokemon spawns to catch it!\n• 15% chance for a trainer battle\n• Win to claim the Pokemon! (+10 XP)",
+        value="Type `ball` when a Pokemon spawns to catch it!\n• 15% chance for a trainer battle\n• Win to claim the Pokemon!",
         inline=False
     )
 
