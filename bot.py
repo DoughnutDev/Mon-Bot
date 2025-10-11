@@ -684,6 +684,22 @@ class GymBattleView(View):
         self.turn_count = 0
         self.battle_log = []
 
+        # Stat stages (user and gym Pokemon)
+        self.user_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+        self.gym_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+
+        # Status conditions
+        self.user_status = None  # 'burn', 'paralysis', 'sleep', 'poison', 'freeze', etc.
+        self.user_status_turns = 0  # For sleep duration or poison counter
+        self.gym_status = None
+        self.gym_status_turns = 0
+
         # Create Pokemon selection dropdown
         self.pokemon_select = Select(
             placeholder="Choose your Pokemon...",
@@ -833,6 +849,14 @@ class GymBattleView(View):
         self.gym_max_hp = gym_stats['hp']
         self.gym_current_hp = gym_stats['hp']
 
+        # Reset gym Pokemon stat stages and status (new Pokemon)
+        self.gym_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+        self.gym_status = None
+        self.gym_status_turns = 0
+
     async def create_battle_buttons(self):
         """Create move buttons for battle"""
         for i, move in enumerate(self.user_choice['moves']):
@@ -876,7 +900,10 @@ class GymBattleView(View):
             user_damage, user_crit, user_hit = await self.calculate_damage(
                 user_move,
                 self.user_choice,
-                self.gym_current_pokemon
+                self.gym_current_pokemon,
+                self.user_stat_stages,
+                self.user_status,
+                self.gym_stat_stages
             )
 
             if user_hit:
@@ -905,7 +932,10 @@ class GymBattleView(View):
                 gym_damage, gym_crit, gym_hit = await self.calculate_damage(
                     gym_move,
                     self.gym_current_pokemon,
-                    self.user_choice
+                    self.user_choice,
+                    self.gym_stat_stages,
+                    self.gym_status,
+                    self.user_stat_stages
                 )
 
                 if gym_hit:
@@ -925,7 +955,10 @@ class GymBattleView(View):
             gym_damage, gym_crit, gym_hit = await self.calculate_damage(
                 gym_move,
                 self.gym_current_pokemon,
-                self.user_choice
+                self.user_choice,
+                self.gym_stat_stages,
+                self.gym_status,
+                self.user_stat_stages
             )
 
             if gym_hit:
@@ -945,7 +978,10 @@ class GymBattleView(View):
             user_damage, user_crit, user_hit = await self.calculate_damage(
                 user_move,
                 self.user_choice,
-                self.gym_current_pokemon
+                self.gym_current_pokemon,
+                self.user_stat_stages,
+                self.user_status,
+                self.gym_stat_stages
             )
 
             if user_hit:
@@ -974,23 +1010,37 @@ class GymBattleView(View):
         embed = self.create_battle_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    async def calculate_damage(self, move, attacker, defender):
-        """Calculate damage for a move"""
-        # Check accuracy
+    async def calculate_damage(self, move, attacker, defender, attacker_stat_stages, attacker_status, defender_stat_stages):
+        """Calculate damage for a move with stat stages and status conditions"""
+        # Check accuracy (with accuracy/evasion stages)
         accuracy = move.get('accuracy', 100)
-        if random.randint(1, 100) > accuracy:
+        accuracy_stage = attacker_stat_stages.get('accuracy', 0)
+        evasion_stage = defender_stat_stages.get('evasion', 0)
+        net_accuracy_stage = accuracy_stage - evasion_stage
+        accuracy_multiplier = pkmn.get_stat_stage_multiplier(net_accuracy_stage)
+
+        final_accuracy = min(100, accuracy * accuracy_multiplier)
+        if random.randint(1, 100) > final_accuracy:
             return 0, False, False
 
         # Check critical hit
         is_crit = random.random() < 0.0625  # 6.25% crit chance
 
-        # Get stats
+        # Get base stats
         if move['damage_class'] == 'physical':
             attack = attacker['stats']['attack']
             defense = defender['stats']['defense']
+            attack_stage = attacker_stat_stages.get('attack', 0)
+            defense_stage = defender_stat_stages.get('defense', 0)
+
+            # Apply burn to physical attacks (halves attack)
+            if attacker_status == 'burn' and not is_crit:  # Crit ignores burn
+                attack = int(attack * 0.5)
         elif move['damage_class'] == 'special':
             attack = attacker['stats']['special-attack']
             defense = defender['stats']['special-defense']
+            attack_stage = attacker_stat_stages.get('special-attack', 0)
+            defense_stage = defender_stat_stages.get('special-defense', 0)
         else:
             # Status move, no damage
             return 0, False, True
@@ -999,6 +1049,10 @@ class GymBattleView(View):
         power = move.get('power', 0)
         if power == 0:
             return 0, False, True
+
+        # Apply stat stages to attack and defense
+        attack = pkmn.apply_stat_stages(attack, attack_stage)
+        defense = pkmn.apply_stat_stages(defense, defense_stage)
 
         level = attacker['level']
 
@@ -1009,7 +1063,7 @@ class GymBattleView(View):
         effectiveness = pkmn.get_type_effectiveness([move['type']], defender['types'])
         damage *= effectiveness
 
-        # Apply critical hit
+        # Apply critical hit (ignores negative attack stages and positive defense stages)
         if is_crit:
             damage *= 1.5
 

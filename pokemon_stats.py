@@ -121,6 +121,112 @@ def create_hp_bar(hp_percent: float) -> str:
         return f"{'🟥' * filled}{'⬜' * empty}"
 
 
+# Stat stage multipliers (from -6 to +6)
+STAT_STAGE_MULTIPLIERS = {
+    -6: 2/8, -5: 2/7, -4: 2/6, -3: 2/5, -2: 2/4, -1: 2/3,
+    0: 1.0,
+    1: 3/2, 2: 4/2, 3: 5/2, 4: 6/2, 5: 7/2, 6: 8/2
+}
+
+
+def get_stat_stage_multiplier(stage: int) -> float:
+    """Get multiplier for a stat stage"""
+    stage = max(-6, min(6, stage))  # Clamp between -6 and +6
+    return STAT_STAGE_MULTIPLIERS[stage]
+
+
+def apply_stat_stages(base_stat: int, stage: int) -> int:
+    """Apply stat stage modifier to a base stat"""
+    multiplier = get_stat_stage_multiplier(stage)
+    return int(base_stat * multiplier)
+
+
+# Status condition effects
+STATUS_CONDITIONS = {
+    'burn': {
+        'name': 'Burn',
+        'emoji': '🔥',
+        'damage_percent': 0.0625,  # 1/16 HP per turn
+        'attack_modifier': 0.5  # Halves physical attack
+    },
+    'paralysis': {
+        'name': 'Paralysis',
+        'emoji': '⚡',
+        'speed_modifier': 0.25,  # Speed reduced to 25%
+        'immobilize_chance': 0.25  # 25% chance to be unable to move
+    },
+    'sleep': {
+        'name': 'Sleep',
+        'emoji': '💤',
+        'min_turns': 1,
+        'max_turns': 3,
+        'immobilized': True
+    },
+    'poison': {
+        'name': 'Poison',
+        'emoji': '☠️',
+        'damage_percent': 0.125  # 1/8 HP per turn
+    },
+    'badly_poison': {
+        'name': 'Badly Poisoned',
+        'emoji': '☠️☠️',
+        'damage_increases': True,  # Damage increases each turn
+        'base_damage': 0.0625  # 1/16 HP base, increases by 1/16 each turn
+    },
+    'freeze': {
+        'name': 'Freeze',
+        'emoji': '❄️',
+        'immobilized': True,
+        'thaw_chance': 0.20  # 20% chance to thaw each turn
+    }
+}
+
+
+def get_status_condition_effect(status: str) -> dict:
+    """Get status condition effects"""
+    return STATUS_CONDITIONS.get(status, None)
+
+
+# Move effect types for stat changes
+STAT_CHANGE_MOVES = {
+    # Buff moves (raise user's stats)
+    'swords dance': {'target': 'user', 'stat': 'attack', 'stages': 2},
+    'nasty plot': {'target': 'user', 'stat': 'special-attack', 'stages': 2},
+    'dragon dance': {'target': 'user', 'stat': 'attack', 'stages': 1, 'secondary': {'stat': 'speed', 'stages': 1}},
+    'calm mind': {'target': 'user', 'stat': 'special-attack', 'stages': 1, 'secondary': {'stat': 'special-defense', 'stages': 1}},
+    'bulk up': {'target': 'user', 'stat': 'attack', 'stages': 1, 'secondary': {'stat': 'defense', 'stages': 1}},
+    'iron defense': {'target': 'user', 'stat': 'defense', 'stages': 2},
+    'amnesia': {'target': 'user', 'stat': 'special-defense', 'stages': 2},
+    'agility': {'target': 'user', 'stat': 'speed', 'stages': 2},
+    'harden': {'target': 'user', 'stat': 'defense', 'stages': 1},
+    'withdraw': {'target': 'user', 'stat': 'defense', 'stages': 1},
+    'defense curl': {'target': 'user', 'stat': 'defense', 'stages': 1},
+    'sharpen': {'target': 'user', 'stat': 'attack', 'stages': 1},
+    'meditate': {'target': 'user', 'stat': 'attack', 'stages': 1},
+    'double team': {'target': 'user', 'stat': 'evasion', 'stages': 1},
+    'minimize': {'target': 'user', 'stat': 'evasion', 'stages': 2},
+
+    # Debuff moves (lower opponent's stats)
+    'growl': {'target': 'opponent', 'stat': 'attack', 'stages': -1},
+    'leer': {'target': 'opponent', 'stat': 'defense', 'stages': -1},
+    'tail whip': {'target': 'opponent', 'stat': 'defense', 'stages': -1},
+    'sand attack': {'target': 'opponent', 'stat': 'accuracy', 'stages': -1},
+    'smokescreen': {'target': 'opponent', 'stat': 'accuracy', 'stages': -1},
+    'flash': {'target': 'opponent', 'stat': 'accuracy', 'stages': -1},
+    'sweet scent': {'target': 'opponent', 'stat': 'evasion', 'stages': -2},
+    'charm': {'target': 'opponent', 'stat': 'attack', 'stages': -2},
+    'feather dance': {'target': 'opponent', 'stat': 'attack', 'stages': -2},
+    'scary face': {'target': 'opponent', 'stat': 'speed', 'stages': -2},
+    'string shot': {'target': 'opponent', 'stat': 'speed', 'stages': -2},
+}
+
+
+def get_move_stat_changes(move_name: str) -> dict:
+    """Get stat changes for a move"""
+    move_name = move_name.lower()
+    return STAT_CHANGE_MOVES.get(move_name, None)
+
+
 def get_type_effectiveness(attacker_types: list, defender_types: list) -> float:
     """Calculate type effectiveness multiplier"""
     multiplier = 1.0
