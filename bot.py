@@ -492,9 +492,6 @@ async def on_message(message):
 
             new_balance = await db.add_currency(user_id, guild_id, currency_reward)
 
-            # Add XP to battlepass (10 XP per catch)
-            xp_result = await db.add_xp(user_id, guild_id, xp_amount=10)
-
             # Update quest progress for catching Pokemon
             quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_pokemon')
 
@@ -543,34 +540,23 @@ async def on_message(message):
                         quest_result['total_xp'] += type_quest_result['total_xp']
                         quest_result['completed_quests'].extend(type_quest_result['completed_quests'])
 
-            # Award quest XP to battlepass if quests were completed
-            if quest_result and quest_result.get('total_xp', 0) > 0:
-                quest_xp_result = await db.add_xp(user_id, guild_id, xp_amount=quest_result['total_xp'])
-                # Update xp_result if quest XP caused level up
-                if quest_xp_result and quest_xp_result.get('leveled_up'):
-                    if not xp_result or not xp_result.get('leveled_up'):
-                        xp_result = quest_xp_result
+            # Award quest currency rewards if quests were completed
+            quest_currency_earned = 0
+            if quest_result and quest_result.get('total_currency', 0) > 0:
+                quest_currency_earned = quest_result['total_currency']
+                await db.add_currency(user_id, guild_id, quest_currency_earned)
 
             # Send catch confirmation with time and currency reward
             embed = create_catch_embed(pokemon, message.author, time_taken, currency_reward=currency_reward)
             await message.channel.send(embed=embed)
 
-            # If user leveled up, send level up message
-            if xp_result and xp_result['leveled_up']:
-                level_embed = create_level_up_embed(
-                    message.author,
-                    xp_result['new_level'],
-                    xp_result['rewards']
-                )
-                await message.channel.send(embed=level_embed)
-
             # If quests were completed, notify user
             if quest_result and quest_result.get('completed_quests'):
-                quest_xp = quest_result['total_xp']
+                quest_currency = quest_result.get('total_currency', 0)
                 quest_count = len(quest_result['completed_quests'])
                 quest_embed = discord.Embed(
                     title="✅ Daily Quest Complete!",
-                    description=f"You completed {quest_count} quest(s) and earned **{quest_xp} XP**!",
+                    description=f"You completed {quest_count} quest(s) and earned **₽{quest_currency}**!",
                     color=discord.Color.green()
                 )
                 await message.channel.send(embed=quest_embed)
@@ -1888,9 +1874,6 @@ class GymBattleView(View):
             # Award Pokedollars
             await db.add_currency(self.user.id, self.guild_id, self.gym_data['rewards']['pokedollars'])
 
-            # Award BP XP
-            bp_result = await db.add_xp(self.user.id, self.guild_id, self.gym_data['rewards']['xp'])
-
             # Award pack
             # Get pack from shop
             pack_name = self.gym_data['rewards']['pack']
@@ -1903,7 +1886,6 @@ class GymBattleView(View):
             # Show rewards
             rewards_text = f"**{self.gym_data['badge']}**\n"
             rewards_text += f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
-            rewards_text += f"+{self.gym_data['rewards']['xp']} BP XP\n"
             rewards_text += f"1x {pack_name}"
 
             embed.add_field(
@@ -1911,13 +1893,6 @@ class GymBattleView(View):
                 value=rewards_text,
                 inline=False
             )
-
-            if bp_result and bp_result.get('leveled_up'):
-                embed.add_field(
-                    name="🎉 Battlepass Level Up!",
-                    value=f"Level {bp_result['old_level']} → **Level {bp_result['new_level']}**",
-                    inline=False
-                )
         else:
             embed.add_field(
                 name="ℹ️ Already Defeated",
@@ -2420,10 +2395,6 @@ class BattleView(View):
             winner_pokemon_id, loser_pokemon_id,
             winner_name, loser_name, self.turn_count
         )
-
-        # Award battlepass XP
-        await db.add_xp(winner_id, self.guild_id, 50)
-        await db.add_xp(loser_id, self.guild_id, 10)
 
         # Update quest progress for winner (win_battles)
         await db.update_quest_progress(winner_id, self.guild_id, 'win_battles')
@@ -3436,75 +3407,8 @@ async def stats(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, view=view)
 
 
-@bot.tree.command(name='battlepass', description='View your Season 1 battlepass progress')
-async def battlepass(interaction: discord.Interaction):
-    """View battlepass progress"""
-    # Defer IMMEDIATELY before any checks
-    await interaction.response.defer()
-
-    if not interaction.guild:
-        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
-        return
-
-    user_id = interaction.user.id
-    guild_id = interaction.guild.id
-
-    # Get battlepass progress
-    progress = await db.get_battlepass_progress(user_id, guild_id, season=1)
-    pack_count = await db.get_pack_count(user_id, guild_id)
-
-    # Get all rewards for Season 1
-    all_rewards = await db.get_battlepass_rewards(season=1)
-
-    level = progress.get('level', 1)
-    xp = progress.get('xp', 0)
-
-    # Calculate XP progress for current level
-    current_level_xp = xp % 100
-    xp_needed = 100
-
-    # Create embed
-    embed = discord.Embed(
-        title="Season 1 Battlepass",
-        description=f"{interaction.user.display_name}'s Progress",
-        color=discord.Color.purple()
-    )
-
-    embed.add_field(
-        name="📊 Level",
-        value=f"**{level}** / 50",
-        inline=True
-    )
-
-    embed.add_field(
-        name="⭐ XP",
-        value=f"{current_level_xp} / {xp_needed}",
-        inline=True
-    )
-
-    embed.add_field(
-        name="📦 Packs",
-        value=f"{pack_count}",
-        inline=True
-    )
-
-    # Show next rewards
-    next_rewards = [r for r in all_rewards if r['level'] > level][:3]
-    if next_rewards:
-        rewards_text = []
-        for reward in next_rewards:
-            pack_word = 'pack' if reward['reward_value'] == 1 else 'packs'
-            rewards_text.append(f"Level {reward['level']}: {reward['reward_value']} {pack_word}")
-
-        embed.add_field(
-            name="🎁 Upcoming Rewards",
-            value='\n'.join(rewards_text),
-            inline=False
-        )
-
-    embed.set_footer(text="Catch Pokemon to gain 10 XP each!")
-
-    await interaction.followup.send(embed=embed)
+# Battlepass command removed - progression merged with quest system
+# Legacy battlepass data is preserved in the database for historical records
 
 
 @bot.tree.command(name='pack', description='Open a Pokemon pack from your inventory')
@@ -3524,15 +3428,6 @@ async def pack(interaction: discord.Interaction):
     user_packs = await db.get_user_packs(user_id, guild_id)
 
     if not user_packs:
-        # Get user's battlepass progress to show next pack level
-        bp_progress = await db.get_battlepass_progress(user_id, guild_id)
-        current_level = bp_progress.get('level', 1)
-
-        # Calculate next pack level (every 5 levels: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)
-        next_pack_level = ((current_level // 5) + 1) * 5
-        if next_pack_level > 50:
-            next_pack_level = 50  # Cap at max level
-
         embed = discord.Embed(
             title="No Packs Available",
             description="You don't have any packs to open!",
@@ -3544,8 +3439,8 @@ async def pack(interaction: discord.Interaction):
             inline=False
         )
         embed.add_field(
-            name="🎁 Free Packs from Battlepass",
-            value=f"Earn free packs every 5 levels! (Levels 5, 10, 15, 20, etc.)\n**Next pack at Level {next_pack_level}!**",
+            name="🎁 Earn Packs",
+            value="- Complete daily quests for currency rewards\n- Defeat gym leaders for free packs\n- Buy packs from the shop with your earnings!",
             inline=False
         )
         await interaction.followup.send(embed=embed)
@@ -4120,7 +4015,7 @@ async def wiki(interaction: discord.Interaction, pokemon: str = None):
 
 @bot.tree.command(name='quests', description='View your daily quests and progress')
 async def quests(interaction: discord.Interaction):
-    """View daily quests for battlepass XP"""
+    """View daily quests for Pokedollar rewards"""
     # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
 
@@ -4152,7 +4047,7 @@ async def quests(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
 
-    total_xp_earned = 0
+    total_currency_earned = 0
     all_complete = True
 
     # Display each quest
@@ -4178,7 +4073,7 @@ async def quests(interaction: discord.Interaction):
                 # Build field value
                 field_value = f"{quest_info['description']}\n"
                 field_value += f"**Progress:** {progress_bar}\n"
-                field_value += f"**Reward:** {reward} XP"
+                field_value += f"**Reward:** ₽{reward}"
 
                 embed.add_field(
                     name=f"{status_emoji} Quest {i}",
@@ -4187,7 +4082,7 @@ async def quests(interaction: discord.Interaction):
                 )
 
                 if completed:
-                    total_xp_earned += reward
+                    total_currency_earned += reward
                 else:
                     all_complete = False
 
@@ -4206,7 +4101,7 @@ async def quests(interaction: discord.Interaction):
     if all_complete:
         embed.add_field(
             name="🎉 All Quests Complete!",
-            value=f"You've earned **{total_xp_earned} XP** today!\nNew quests available after reset.",
+            value=f"You've earned **₽{total_currency_earned}** today!\nNew quests available after reset.",
             inline=False
         )
         embed.set_footer(text=f"⏰ {reset_text}")
@@ -4813,7 +4708,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="📊 Progress & Stats",
-        value="**/battlepass** - View Season 1 progress & rewards\n**/quests** - View daily quests (earn XP!)\n**/stats [pokemon]** - View detailed stats for your Pokemon\n**/pokedex [@user]** - View collected Pokemon\n**/count** - See how many of each Pokemon you have",
+        value="**/quests** - View daily quests (earn Pokedollars!)\n**/stats [pokemon]** - View detailed stats for your Pokemon\n**/pokedex [@user]** - View collected Pokemon\n**/count** - See how many of each Pokemon you have",
         inline=False
     )
 

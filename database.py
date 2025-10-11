@@ -1195,7 +1195,7 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
                         'description': f'Quest {i}',
                         'reward': q_reward
                     })
-                    total_xp_earned += q_reward
+                    total_xp_earned += q_reward  # Using the same variable for currency now
                 else:
                     # Just update progress
                     await conn.execute(f'''
@@ -1206,8 +1206,9 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
         
         if completed_quests:
             return {
-                'completed': completed_quests,
-                'total_xp': total_xp_earned
+                'completed_quests': completed_quests,
+                'total_currency': total_xp_earned,  # Return as currency now
+                'total_xp': total_xp_earned  # Keep for backwards compatibility during transition
             }
 
         return None
