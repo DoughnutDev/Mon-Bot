@@ -214,6 +214,17 @@ async def setup_database():
                 )
             ''')
 
+            # Gym badges table - tracks which gyms users have beaten
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS gym_badges (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    gym_name TEXT NOT NULL,
+                    earned_at TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (user_id, guild_id, gym_name)
+                )
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
@@ -995,6 +1006,33 @@ async def add_pack(user_id: int, guild_id: int, pack_name: str, pack_config: dic
         ''', user_id, guild_id, pack_name, json.dumps(pack_config))
 
 
+async def add_packs(user_id: int, guild_id: int, pack_tier: int):
+    """Add pack(s) to user's inventory based on battlepass tier"""
+    if not pool:
+        return
+
+    # Map tier numbers to pack names
+    pack_tiers = {
+        1: 'Basic Pack',
+        2: 'Booster Pack',
+        3: 'Premium Pack',
+        4: 'Elite Trainer Pack',
+        5: 'Master Collection'
+    }
+
+    pack_name = pack_tiers.get(pack_tier, 'Basic Pack')
+
+    # Get pack config from shop
+    async with pool.acquire() as conn:
+        pack_data = await conn.fetchrow('''
+            SELECT pack_config FROM shop_items
+            WHERE item_name = $1
+        ''', pack_name)
+
+        if pack_data:
+            await add_pack(user_id, guild_id, pack_name, pack_data['pack_config'])
+
+
 async def get_user_packs(user_id: int, guild_id: int) -> List[Dict]:
     """Get all packs in user's inventory"""
     if not pool:
@@ -1304,3 +1342,67 @@ async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[i
         await add_currency(user_id, guild_id, sale_price)
 
         return sale_price
+
+
+# Gym badge functions
+
+async def get_user_badges(user_id: int, guild_id: int) -> List[str]:
+    """Get list of gym badges earned by user"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT gym_name FROM gym_badges
+            WHERE user_id = $1 AND guild_id = $2
+            ORDER BY earned_at ASC
+        ''', user_id, guild_id)
+
+        return [row['gym_name'] for row in rows]
+
+
+async def award_gym_badge(user_id: int, guild_id: int, gym_name: str) -> bool:
+    """Award a gym badge to a user. Returns True if newly awarded, False if already owned."""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                INSERT INTO gym_badges (user_id, guild_id, gym_name)
+                VALUES ($1, $2, $3)
+            ''', user_id, guild_id, gym_name)
+            return True
+        except:
+            # Badge already exists (primary key constraint)
+            return False
+
+
+async def has_gym_badge(user_id: int, guild_id: int, gym_name: str) -> bool:
+    """Check if user has a specific gym badge"""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval('''
+            SELECT EXISTS(
+                SELECT 1 FROM gym_badges
+                WHERE user_id = $1 AND guild_id = $2 AND gym_name = $3
+            )
+        ''', user_id, guild_id, gym_name)
+
+        return exists if exists else False
+
+
+async def get_badge_count(user_id: int, guild_id: int) -> int:
+    """Get total number of badges earned by user"""
+    if not pool:
+        return 0
+
+    async with pool.acquire() as conn:
+        count = await conn.fetchval('''
+            SELECT COUNT(*) FROM gym_badges
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        return count if count else 0

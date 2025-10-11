@@ -15,6 +15,8 @@ import database as db
 import pokemon_stats as pkmn
 # Import quest system
 import quest_system
+# Import gym leaders
+import gym_leaders
 
 # Load environment variables
 load_dotenv()
@@ -579,6 +581,594 @@ async def spawn_command(interaction: discord.Interaction):
             ephemeral=True
         )
         print(f"Error in spawn command: {e}")
+
+
+# Gym Leader Selection View
+class GymSelectView(View):
+    def __init__(self, user: discord.Member, guild_id: int, user_badges: list):
+        super().__init__(timeout=300)
+        self.user = user
+        self.guild_id = guild_id
+        self.user_badges = user_badges
+
+        # Create dropdown for gym selection
+        self.gym_select = Select(
+            placeholder="Choose a Gym Leader to challenge...",
+            min_values=1,
+            max_values=1
+        )
+
+        # Add gym leaders as options
+        for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+            has_badge = gym_key in user_badges
+            label = f"{'✅' if has_badge else '⭕'} {gym_data['name']} ({gym_data['type']})"
+            description = f"{gym_data['location']} - {'⭐' * gym_data['difficulty']}"
+            self.gym_select.add_option(
+                label=label,
+                value=gym_key,
+                description=description,
+                emoji=gym_data['badge_emoji']
+            )
+
+        self.gym_select.callback = self.gym_selected
+        self.add_item(self.gym_select)
+
+    async def gym_selected(self, interaction: discord.Interaction):
+        """Handle gym leader selection"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your gym challenge!", ephemeral=True)
+            return
+
+        gym_key = self.gym_select.values[0]
+        gym_data = gym_leaders.get_gym_leader(gym_key)
+
+        # Check if already defeated
+        if gym_key in self.user_badges:
+            await interaction.response.send_message(
+                f"✅ You've already earned the **{gym_data['badge']}**! (You can still challenge them again for fun, but won't earn rewards)",
+                ephemeral=True
+            )
+            # Allow re-challenge but note it won't give rewards
+
+        # Defer response
+        await interaction.response.defer()
+
+        # Load user's Pokemon
+        user_pokemon = await db.get_user_pokemon_for_trade(self.user.id, self.guild_id)
+
+        if not user_pokemon:
+            await interaction.followup.send(f"❌ You don't have any Pokemon to battle with!", ephemeral=True)
+            return
+
+        # Create gym battle view
+        gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, user_pokemon, gym_key in self.user_badges)
+
+        # Create Pokemon selection dropdown
+        pokemon_options = []
+        for pokemon in user_pokemon[:25]:  # Max 25 options
+            label = f"#{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            pokemon_options.append(discord.SelectOption(label=label, value=str(pokemon['id'])))
+
+        gym_battle_view.pokemon_select.options = pokemon_options
+
+        embed = gym_battle_view.create_selection_embed()
+        await interaction.followup.send(embed=embed, view=gym_battle_view)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user.id
+
+
+# Gym Battle View - NPC Battle System
+class GymBattleView(View):
+    def __init__(self, user: discord.Member, guild_id: int, gym_key: str, gym_data: dict, user_pokemon: list, already_defeated: bool):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.gym_key = gym_key
+        self.gym_data = gym_data
+        self.user_pokemon = user_pokemon
+        self.already_defeated = already_defeated
+
+        # Battle state
+        self.user_choice = None
+        self.gym_pokemon_index = 0  # Current gym leader Pokemon index
+        self.battle_started = False
+
+        # HP tracking
+        self.user_current_hp = 0
+        self.user_max_hp = 0
+        self.gym_current_hp = 0
+        self.gym_max_hp = 0
+
+        # Turn tracking
+        self.turn_count = 0
+        self.battle_log = []
+
+        # Create Pokemon selection dropdown
+        self.pokemon_select = Select(
+            placeholder="Choose your Pokemon...",
+            min_values=1,
+            max_values=1
+        )
+        self.pokemon_select.callback = self.pokemon_selected
+        self.add_item(self.pokemon_select)
+
+    def create_selection_embed(self):
+        """Create embed for Pokemon selection"""
+        gym_team_text = "\n".join([
+            f"**{p['name']}** (Lv.{p['level']}) - {'/'.join(p['types']).title()}"
+            for p in self.gym_data['pokemon']
+        ])
+
+        embed = discord.Embed(
+            title=f"🏟️ Challenge {self.gym_data['name']}!",
+            description=f"**{self.gym_data['title']}**\n📍 {self.gym_data['location']}",
+            color=discord.Color.orange()
+        )
+
+        embed.add_field(
+            name=f"{self.gym_data['type']} Type Specialist",
+            value=f"**Gym Team:**\n{gym_team_text}",
+            inline=False
+        )
+
+        rewards_text = f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
+        rewards_text += f"{self.gym_data['rewards']['xp']} BP XP\n"
+        rewards_text += f"1x {self.gym_data['rewards']['pack']}\n"
+        rewards_text += f"**{self.gym_data['badge']}**"
+
+        if self.already_defeated:
+            embed.add_field(
+                name="⚠️ Already Defeated",
+                value="You've already beaten this gym! You can battle for fun but won't earn rewards.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🎁 Rewards (First Victory)",
+                value=rewards_text,
+                inline=False
+            )
+
+        embed.set_footer(text="Select your Pokemon below to begin the challenge!")
+
+        return embed
+
+    async def pokemon_selected(self, interaction: discord.Interaction):
+        """Handle Pokemon selection and start battle"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        # Get selected Pokemon
+        selected_id = int(self.pokemon_select.values[0])
+        selected_pokemon = next((p for p in self.user_pokemon if p['id'] == selected_id), None)
+
+        if not selected_pokemon:
+            await interaction.followup.send("❌ Pokemon not found!", ephemeral=True)
+            return
+
+        # Fetch Pokemon data from PokeAPI
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f'https://pokeapi.co/api/v2/pokemon/{selected_pokemon["pokemon_id"]}') as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("❌ Error loading Pokemon data!", ephemeral=True)
+                    return
+                poke_data = await resp.json()
+
+        # Get Pokemon types
+        types = [t['type']['name'] for t in poke_data['types']]
+
+        # Get 4 random moves
+        moves = pkmn.get_pokemon_moves(poke_data)
+
+        # Get species level
+        species_level = await db.get_species_level(self.user.id, self.guild_id, selected_pokemon['pokemon_id'], selected_pokemon['pokemon_name'])
+
+        # Calculate stats
+        base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
+        user_stats = pkmn.calculate_battle_stats(base_stats, species_level)
+
+        self.user_choice = {
+            'id': selected_pokemon['id'],
+            'pokemon_name': selected_pokemon['pokemon_name'],
+            'pokemon_id': selected_pokemon['pokemon_id'],
+            'types': types,
+            'moves': moves,
+            'level': species_level,
+            'stats': user_stats,
+            'sprite': poke_data['sprites']['front_default']
+        }
+
+        # Initialize HP
+        self.user_max_hp = user_stats['hp']
+        self.user_current_hp = user_stats['hp']
+
+        # Start battle
+        self.battle_started = True
+        self.gym_pokemon_index = 0
+
+        # Load first gym Pokemon
+        await self.load_gym_pokemon()
+
+        # Create battle UI
+        self.clear_items()
+        await self.create_battle_buttons()
+
+        embed = self.create_battle_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def load_gym_pokemon(self):
+        """Load current gym leader Pokemon"""
+        gym_poke = self.gym_data['pokemon'][self.gym_pokemon_index]
+
+        # Fetch Pokemon data from PokeAPI
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f'https://pokeapi.co/api/v2/pokemon/{gym_poke["id"]}') as resp:
+                if resp.status != 200:
+                    return
+                poke_data = await resp.json()
+
+        # Get 4 random moves
+        moves = pkmn.get_pokemon_moves(poke_data)
+
+        # Calculate stats for gym Pokemon
+        base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
+        gym_stats = pkmn.calculate_battle_stats(base_stats, gym_poke['level'])
+
+        self.gym_current_pokemon = {
+            'pokemon_name': gym_poke['name'],
+            'pokemon_id': gym_poke['id'],
+            'types': gym_poke['types'],
+            'moves': moves,
+            'level': gym_poke['level'],
+            'stats': gym_stats,
+            'sprite': poke_data['sprites']['front_default']
+        }
+
+        # Initialize gym Pokemon HP
+        self.gym_max_hp = gym_stats['hp']
+        self.gym_current_hp = gym_stats['hp']
+
+    async def create_battle_buttons(self):
+        """Create move buttons for battle"""
+        for i, move in enumerate(self.user_choice['moves']):
+            button = Button(
+                label=f"{move['name']} ({move['type']})",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"move_{i}",
+                row=i // 2  # 2 buttons per row
+            )
+            button.callback = self.create_move_callback(i)
+            self.add_item(button)
+
+    def create_move_callback(self, move_index: int):
+        """Create callback for move button"""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                return
+
+            await interaction.response.defer()
+            await self.execute_turn(move_index, interaction)
+
+        return callback
+
+    async def execute_turn(self, user_move_index: int, interaction: discord.Interaction):
+        """Execute a battle turn"""
+        self.turn_count += 1
+
+        # User's move
+        user_move = self.user_choice['moves'][user_move_index]
+
+        # Gym Pokemon randomly selects a move
+        gym_move = random.choice(self.gym_current_pokemon['moves'])
+
+        # Determine turn order based on speed
+        user_speed = self.user_choice['stats']['speed']
+        gym_speed = self.gym_current_pokemon['stats']['speed']
+
+        if user_speed >= gym_speed:
+            # User goes first
+            user_damage, user_crit, user_hit = await self.calculate_damage(
+                user_move,
+                self.user_choice,
+                self.gym_current_pokemon
+            )
+
+            if user_hit:
+                self.gym_current_hp -= user_damage
+                crit_text = " **Critical hit!**" if user_crit else ""
+                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
+            else:
+                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
+
+            # Check if gym Pokemon fainted
+            if self.gym_current_hp <= 0:
+                self.gym_current_hp = 0
+                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** fainted!")
+
+                # Check if there are more gym Pokemon
+                if self.gym_pokemon_index < len(self.gym_data['pokemon']) - 1:
+                    self.gym_pokemon_index += 1
+                    await self.load_gym_pokemon()
+                    self.battle_log.append(f"**{self.gym_data['name']}** sent out **{self.gym_current_pokemon['pokemon_name']}**!")
+                else:
+                    # User won!
+                    await self.handle_victory(interaction)
+                    return
+            else:
+                # Gym Pokemon's turn
+                gym_damage, gym_crit, gym_hit = await self.calculate_damage(
+                    gym_move,
+                    self.gym_current_pokemon,
+                    self.user_choice
+                )
+
+                if gym_hit:
+                    self.user_current_hp -= gym_damage
+                    crit_text = " **Critical hit!**" if gym_crit else ""
+                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+                else:
+                    self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
+
+                # Check if user Pokemon fainted
+                if self.user_current_hp <= 0:
+                    self.user_current_hp = 0
+                    await self.handle_defeat(interaction)
+                    return
+        else:
+            # Gym Pokemon goes first
+            gym_damage, gym_crit, gym_hit = await self.calculate_damage(
+                gym_move,
+                self.gym_current_pokemon,
+                self.user_choice
+            )
+
+            if gym_hit:
+                self.user_current_hp -= gym_damage
+                crit_text = " **Critical hit!**" if gym_crit else ""
+                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
+            else:
+                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**... but it missed!")
+
+            # Check if user Pokemon fainted
+            if self.user_current_hp <= 0:
+                self.user_current_hp = 0
+                await self.handle_defeat(interaction)
+                return
+
+            # User's turn
+            user_damage, user_crit, user_hit = await self.calculate_damage(
+                user_move,
+                self.user_choice,
+                self.gym_current_pokemon
+            )
+
+            if user_hit:
+                self.gym_current_hp -= user_damage
+                crit_text = " **Critical hit!**" if user_crit else ""
+                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**! Dealt {user_damage} damage!{crit_text}")
+            else:
+                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{user_move['name']}**... but it missed!")
+
+            # Check if gym Pokemon fainted
+            if self.gym_current_hp <= 0:
+                self.gym_current_hp = 0
+                self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** fainted!")
+
+                # Check if there are more gym Pokemon
+                if self.gym_pokemon_index < len(self.gym_data['pokemon']) - 1:
+                    self.gym_pokemon_index += 1
+                    await self.load_gym_pokemon()
+                    self.battle_log.append(f"**{self.gym_data['name']}** sent out **{self.gym_current_pokemon['pokemon_name']}**!")
+                else:
+                    # User won!
+                    await self.handle_victory(interaction)
+                    return
+
+        # Update embed
+        embed = self.create_battle_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def calculate_damage(self, move, attacker, defender):
+        """Calculate damage for a move"""
+        # Check accuracy
+        accuracy = move.get('accuracy', 100)
+        if random.randint(1, 100) > accuracy:
+            return 0, False, False
+
+        # Check critical hit
+        is_crit = random.random() < 0.0625  # 6.25% crit chance
+
+        # Get stats
+        if move['damage_class'] == 'physical':
+            attack = attacker['stats']['attack']
+            defense = defender['stats']['defense']
+        elif move['damage_class'] == 'special':
+            attack = attacker['stats']['special-attack']
+            defense = defender['stats']['special-defense']
+        else:
+            # Status move, no damage
+            return 0, False, True
+
+        # Calculate base damage
+        power = move.get('power', 0)
+        if power == 0:
+            return 0, False, True
+
+        level = attacker['level']
+
+        # Damage formula
+        damage = ((2 * level / 5 + 2) * power * (attack / defense) / 50) + 2
+
+        # Apply type effectiveness
+        effectiveness = pkmn.get_type_effectiveness(move['type'], defender['types'])
+        damage *= effectiveness
+
+        # Apply critical hit
+        if is_crit:
+            damage *= 1.5
+
+        # Random factor (0.85 - 1.0)
+        damage *= random.uniform(0.85, 1.0)
+
+        return int(damage), is_crit, True
+
+    def create_battle_embed(self):
+        """Create battle status embed"""
+        embed = discord.Embed(
+            title=f"🏟️ Gym Battle: {self.gym_data['name']}",
+            description=f"**Turn {self.turn_count}**",
+            color=discord.Color.red()
+        )
+
+        # User Pokemon status
+        user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
+        user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
+
+        embed.add_field(
+            name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']})",
+            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
+            inline=True
+        )
+
+        # Gym Pokemon status
+        gym_hp_percent = (self.gym_current_hp / self.gym_max_hp) * 100
+        gym_hp_bar = pkmn.create_hp_bar(gym_hp_percent)
+
+        gym_info = f"{self.gym_data['name']}'s {self.gym_current_pokemon['pokemon_name']} (Lv.{self.gym_current_pokemon['level']})"
+        gym_remaining = f"\n**Remaining:** {len(self.gym_data['pokemon']) - self.gym_pokemon_index}/{len(self.gym_data['pokemon'])} Pokemon"
+
+        embed.add_field(
+            name=gym_info,
+            value=f"{gym_hp_bar}\nHP: {self.gym_current_hp}/{self.gym_max_hp}{gym_remaining}",
+            inline=True
+        )
+
+        # Battle log (last 5 messages)
+        if self.battle_log:
+            log_text = "\n".join(self.battle_log[-5:])
+            embed.add_field(
+                name="📜 Battle Log",
+                value=log_text,
+                inline=False
+            )
+
+        embed.set_footer(text="Choose your move!")
+
+        return embed
+
+    async def handle_victory(self, interaction: discord.Interaction):
+        """Handle gym victory"""
+        self.clear_items()
+
+        embed = discord.Embed(
+            title=f"🏆 Victory!",
+            description=f"**{self.user.display_name}** defeated **{self.gym_data['name']}**!",
+            color=discord.Color.gold()
+        )
+
+        # Award species XP for victory
+        await db.add_species_xp(
+            self.user.id,
+            self.guild_id,
+            self.user_choice['pokemon_id'],
+            self.user_choice['pokemon_name'],
+            50,  # XP for gym victory
+            is_win=True
+        )
+
+        if not self.already_defeated:
+            # Award badge
+            await db.award_gym_badge(self.user.id, self.guild_id, self.gym_key)
+
+            # Award Pokedollars
+            await db.add_currency(self.user.id, self.guild_id, self.gym_data['rewards']['pokedollars'])
+
+            # Award BP XP
+            bp_result = await db.add_xp(self.user.id, self.guild_id, self.gym_data['rewards']['xp'])
+
+            # Award pack
+            # Get pack from shop
+            pack_name = self.gym_data['rewards']['pack']
+            shop_items = await db.get_shop_items()
+            pack_item = next((item for item in shop_items if item['item_name'] == pack_name), None)
+
+            if pack_item:
+                await db.add_pack(self.user.id, self.guild_id, pack_name, pack_item['pack_config'])
+
+            # Show rewards
+            rewards_text = f"**{self.gym_data['badge']}**\n"
+            rewards_text += f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
+            rewards_text += f"+{self.gym_data['rewards']['xp']} BP XP\n"
+            rewards_text += f"1x {pack_name}"
+
+            embed.add_field(
+                name="🎁 Rewards Earned",
+                value=rewards_text,
+                inline=False
+            )
+
+            if bp_result and bp_result.get('leveled_up'):
+                embed.add_field(
+                    name="🎉 Battlepass Level Up!",
+                    value=f"Level {bp_result['old_level']} → **Level {bp_result['new_level']}**",
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="ℹ️ Already Defeated",
+                value="You've already earned rewards from this gym. Great battle practice though!",
+                inline=False
+            )
+
+        embed.add_field(
+            name=f"⭐ {self.user_choice['pokemon_name']} gained XP!",
+            value=f"+50 XP from defeating the gym!",
+            inline=False
+        )
+
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def handle_defeat(self, interaction: discord.Interaction):
+        """Handle gym defeat"""
+        self.clear_items()
+
+        # Award some XP for participation
+        await db.add_species_xp(
+            self.user.id,
+            self.guild_id,
+            self.user_choice['pokemon_id'],
+            self.user_choice['pokemon_name'],
+            10,  # Small XP for defeat
+            is_win=False
+        )
+
+        embed = discord.Embed(
+            title=f"💔 Defeat",
+            description=f"**{self.user.display_name}** was defeated by **{self.gym_data['name']}**!",
+            color=discord.Color.dark_gray()
+        )
+
+        embed.add_field(
+            name="💪 Keep Training!",
+            value=f"Train your Pokemon and try again! You made it past {self.gym_pokemon_index}/{len(self.gym_data['pokemon'])} of their Pokemon.",
+            inline=False
+        )
+
+        embed.add_field(
+            name=f"⭐ {self.user_choice['pokemon_name']} gained XP",
+            value=f"+10 XP for the battle experience!",
+            inline=False
+        )
+
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.user.id
 
 
 # Interactive Battle View - Turn-Based System
@@ -2039,6 +2629,116 @@ async def battle(interaction: discord.Interaction, user: discord.Member):
     view.user2_select.placeholder = f"{user.display_name}: Choose your Pokemon..."
 
     embed = view.create_embed()
+    await interaction.followup.send(embed=embed, view=view)
+
+
+@bot.tree.command(name='badges', description='View your gym badge collection!')
+async def badges(interaction: discord.Interaction):
+    """Display user's gym badge collection"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    # Get user's badges
+    user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
+    badge_count = len(user_badges)
+
+    # Create embed
+    embed = discord.Embed(
+        title=f"🏆 {interaction.user.display_name}'s Badge Case",
+        description=f"**Badges Collected: {badge_count}/8**",
+        color=discord.Color.gold() if badge_count == 8 else discord.Color.blue()
+    )
+
+    # Add each gym's badge status
+    badges_display = ""
+    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+        has_badge = gym_key in user_badges
+
+        if has_badge:
+            badges_display += f"{gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}\n"
+        else:
+            badges_display += f"⭕ ~~{gym_data['badge']}~~ - {gym_data['name']} (Not earned)\n"
+
+    embed.add_field(
+        name="Badge Collection",
+        value=badges_display,
+        inline=False
+    )
+
+    if badge_count == 8:
+        embed.add_field(
+            name="🎉 Congratulations!",
+            value="You've collected all 8 Kanto Gym Badges! You are a true Pokemon Master!",
+            inline=False
+        )
+    elif badge_count == 0:
+        embed.add_field(
+            name="💪 Getting Started",
+            value="Use `/gym` to challenge gym leaders and start earning badges!",
+            inline=False
+        )
+    else:
+        remaining = 8 - badge_count
+        embed.add_field(
+            name=f"📍 {remaining} badge{' remains' if remaining == 1 else 's remain'}",
+            value="Keep challenging gym leaders to complete your collection!",
+            inline=False
+        )
+
+    embed.set_footer(text="Use /gym to challenge gym leaders!")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name='gym', description='Challenge Gym Leaders and earn badges!')
+async def gym(interaction: discord.Interaction):
+    """Challenge gym leaders in any order"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    # Get user's badges
+    user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
+    badge_count = len(user_badges)
+
+    # Create gym selection view
+    view = GymSelectView(interaction.user, interaction.guild.id, user_badges)
+
+    # Create embed showing gym leaders
+    embed = discord.Embed(
+        title="🏟️ Kanto Gym Leaders",
+        description=f"**{interaction.user.display_name}** | Badges: **{badge_count}/8**\n\nChallenge any gym leader in any order!",
+        color=discord.Color.gold()
+    )
+
+    # Add gym leaders to embed
+    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+        has_badge = gym_key in user_badges
+        badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+
+        value = f"**Type:** {gym_data['type']}\n"
+        value += f"**Location:** {gym_data['location']}\n"
+        value += f"**Difficulty:** {'⭐' * gym_data['difficulty']}\n"
+        value += f"**Rewards:** ₽{gym_data['rewards']['pokedollars']} | {gym_data['rewards']['xp']} BP XP | {gym_data['rewards']['pack']}"
+
+        if has_badge:
+            value += f"\n✅ **Defeated!**"
+
+        embed.add_field(
+            name=f"{badge_indicator} {gym_data['name']} - {gym_data['title']}",
+            value=value,
+            inline=False
+        )
+
+    embed.set_footer(text="Select a gym leader below to challenge them!")
+
     await interaction.followup.send(embed=embed, view=view)
 
 
