@@ -234,8 +234,14 @@ def create_level_up_embed(user, new_level, rewards):
                 value='\n'.join(rewards_text),
                 inline=False
             )
+            embed.set_footer(text="Use /pack to open your packs!")
+    else:
+        # No rewards at this level - show next pack level
+        next_pack_level = ((new_level // 5) + 1) * 5
+        if next_pack_level > 50:
+            next_pack_level = 50
 
-    embed.set_footer(text="Use /pack to open your packs!")
+        embed.set_footer(text=f"Keep leveling to earn packs! Next pack at Level {next_pack_level}!")
 
     return embed
 
@@ -1782,14 +1788,28 @@ async def pack(interaction: discord.Interaction):
     user_packs = await db.get_user_packs(user_id, guild_id)
 
     if not user_packs:
+        # Get user's battlepass progress to show next pack level
+        bp_progress = await db.get_battlepass_progress(user_id, guild_id)
+        current_level = bp_progress.get('level', 1)
+
+        # Calculate next pack level (every 5 levels: 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)
+        next_pack_level = ((current_level // 5) + 1) * 5
+        if next_pack_level > 50:
+            next_pack_level = 50  # Cap at max level
+
         embed = discord.Embed(
             title="No Packs Available",
-            description="You don't have any packs to open!\n\nBuy packs from the shop or earn them from the battlepass.",
+            description="You don't have any packs to open!",
             color=discord.Color.red()
         )
         embed.add_field(
-            name="How to get packs",
-            value="• Use `/shop` to buy packs with Pokedollars\n• Use `/battlepass` to earn free packs!",
+            name="💰 Buy Packs",
+            value="Use `/shop` to buy packs with Pokedollars",
+            inline=False
+        )
+        embed.add_field(
+            name="🎁 Free Packs from Battlepass",
+            value=f"Earn free packs every 5 levels! (Levels 5, 10, 15, 20, etc.)\n**Next pack at Level {next_pack_level}!**",
             inline=False
         )
         await interaction.followup.send(embed=embed)
