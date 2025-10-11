@@ -42,6 +42,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datetime}}
 active_trainer_battles = {}  # {user_id: {'trainer': trainer_data, 'pokemon': wild_pokemon, 'channel_id': channel_id}}
 last_guild_spawn = {}  # {guild_id: datetime} - Track last spawn per guild to guarantee max spawn interval
+recent_catches = {}  # {channel_id: {'message': catch_message, 'timestamp': datetime}} - Track recent catches for laugh reactions
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -550,7 +551,14 @@ async def on_message(message):
 
             # Send catch confirmation with time and currency reward
             embed = create_catch_embed(pokemon, message.author, time_taken, currency_reward=currency_reward)
-            await message.channel.send(embed=embed)
+            catch_message = await message.channel.send(embed=embed)
+
+            # Store recent catch for laugh reactions (expire after 10 seconds)
+            recent_catches[channel_id] = {
+                'message': catch_message,
+                'timestamp': datetime.now(),
+                'catcher_id': user_id
+            }
 
             # If quests were completed, notify user
             if quest_result and quest_result.get('completed_quests'):
@@ -562,6 +570,19 @@ async def on_message(message):
                     color=discord.Color.green()
                 )
                 await message.channel.send(embed=quest_embed)
+        else:
+            # No active spawn - check if someone just caught it
+            if channel_id in recent_catches:
+                recent_catch = recent_catches[channel_id]
+                time_since_catch = (datetime.now() - recent_catch['timestamp']).total_seconds()
+
+                # If caught within last 10 seconds and it's not the person who caught it
+                if time_since_catch < 10 and message.author.id != recent_catch['catcher_id']:
+                    # Add laugh reaction to the user's failed "ball" attempt
+                    try:
+                        await message.add_reaction('😂')
+                    except:
+                        pass  # Ignore if reaction fails
 
 
 @tasks.loop(seconds=60)  # Check every minute
