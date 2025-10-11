@@ -1772,7 +1772,7 @@ class GymBattleView(View):
     def create_battle_embed(self):
         """Create battle status embed"""
         embed = discord.Embed(
-            title=f"🏟️ Gym Battle: {self.gym_data['name']}",
+            title=f"🏟️ Gym Battle: {self.gym_data['name']} vs. {self.user.display_name}",
             description=f"**Turn {self.turn_count}**",
             color=discord.Color.red()
         )
@@ -3533,40 +3533,18 @@ async def pack(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed)
         return
 
-    # Show pack selection if user has multiple packs
+    # If user has multiple packs, show selection menu
     import json
-    if len(user_packs) == 1:
-        # Only one pack, open it directly
-        pack_to_open = user_packs[0]
-    else:
-        # Create selection menu
-        options = []
-        for i, pack in enumerate(user_packs[:25]):  # Max 25 options
-            # Ensure pack_config is parsed as dict
-            config = None
-            if isinstance(pack['pack_config'], str):
-                try:
-                    config = json.loads(pack['pack_config'])
-                except (json.JSONDecodeError, TypeError):
-                    # Skip packs with invalid config
-                    continue
-            elif isinstance(pack['pack_config'], dict):
-                config = pack['pack_config']
-            else:
-                # Unknown type, skip this pack
-                continue
+    if len(user_packs) > 1:
+        # Show pack selection view - let user choose which pack to open
+        from pack_view import PackSelectionView
+        pack_view = PackSelectionView(interaction.user, guild_id, user_packs)
+        embed = pack_view.create_inventory_embed()
+        await interaction.followup.send(embed=embed, view=pack_view)
+        return
 
-            # Validate config has required fields
-            if not config or not isinstance(config, dict):
-                continue
-
-            label = f"{pack['pack_name']} ({config.get('min_pokemon', 0)}-{config.get('max_pokemon', 0)} Pokemon)"
-            options.append(discord.SelectOption(label=label, value=str(pack['id']), description=f"{config.get('shiny_chance', 0)*100}% shiny chance"))
-
-        select = Select(placeholder="Select a pack to open...", options=options)
-
-        # We'll need to handle the selection, but for simplicity, let's just open the first pack
-        pack_to_open = user_packs[0]
+    # Only one pack, open it directly
+    pack_to_open = user_packs[0]
 
     # Open the pack
     # Use the pack (removes it from inventory)

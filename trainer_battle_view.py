@@ -77,7 +77,7 @@ class TrainerBattleView(View):
     def create_selection_embed(self):
         """Create embed for Pokemon selection"""
         embed = discord.Embed(
-            title=f"⚔️ Trainer Battle: {self.trainer['name']}",
+            title=f"⚔️ Trainer Battle: {self.trainer['name']} vs. {self.user.display_name}",
             description=f"Select your Pokemon to battle {self.trainer['class']} {self.trainer['name']}!",
             color=discord.Color.red()
         )
@@ -396,7 +396,7 @@ class TrainerBattleView(View):
     def create_battle_embed(self):
         """Create battle embed"""
         embed = discord.Embed(
-            title=f"⚔️ Trainer Battle: {self.trainer['name']}",
+            title=f"⚔️ Trainer Battle: {self.trainer['name']} vs. {self.user.display_name}",
             description=f"**{self.user.display_name}** vs **{self.trainer['class']} {self.trainer['name']}**",
             color=discord.Color.orange()
         )
