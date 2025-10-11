@@ -4736,13 +4736,43 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
 
+    embed.set_footer(text="💡 Tip: Catch Pokemon to earn Pokedollars! Challenge gyms for badges!")
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name='adminhelp', description='View admin commands (Admin only)')
+@app_commands.checks.has_permissions(administrator=True)
+async def adminhelp_command(interaction: discord.Interaction):
+    """Show admin commands - only visible to administrators"""
+    # Defer immediately to prevent timeout
+    await interaction.response.defer(ephemeral=True)
+
+    embed = discord.Embed(
+        title="🔧 Mon Bot Admin Commands",
+        description="Administrator-only commands for server management",
+        color=discord.Color.red()
+    )
+
     embed.add_field(
-        name="🔧 Admin Commands",
-        value="**/setup #channel** - Configure spawn channel\n**/clear** - Clear all spawn channels\n**/spawn** - Force spawn a Pokemon (testing)",
+        name="⚙️ Spawn Configuration",
+        value="**/setup #channel** - Add a channel for Pokemon spawns\n**/clear** - Remove all spawn channels from the server",
         inline=False
     )
 
-    embed.set_footer(text="💡 Tip: Catch Pokemon to earn XP & Pokedollars! Challenge gyms for badges!")
+    embed.add_field(
+        name="🧪 Testing & Debug",
+        value="**/spawn** - Force spawn a Pokemon in the current channel (for testing)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📝 Notes",
+        value="• Multiple spawn channels can be configured\n• Pokemon spawn randomly every 3-10 minutes\n• Use `/setup` to enable spawns in specific channels",
+        inline=False
+    )
+
+    embed.set_footer(text="⚠️ These commands require Administrator permission")
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 
