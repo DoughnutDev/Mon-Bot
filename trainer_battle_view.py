@@ -129,6 +129,11 @@ class TrainerBattleView(View):
             await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
             return
 
+        # Prevent page changes if battle has started
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
+            return
+
         self.current_page = max(0, self.current_page - 1)
         self.update_pokemon_selection()
 
@@ -140,6 +145,11 @@ class TrainerBattleView(View):
         """Go to next page of Pokemon"""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        # Prevent page changes if battle has started
+        if self.battle_started:
+            await interaction.response.send_message("❌ Battle has already started!", ephemeral=True)
             return
 
         self.current_page = min(self.total_pages - 1, self.current_page + 1)
