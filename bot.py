@@ -360,7 +360,7 @@ async def on_message(message):
                         quest_result['completed_quests'].extend(starter_quest_result['completed_quests'])
 
             # Check for type-specific quests
-            pokemon_types = types  # Types from the spawned Pokemon
+            pokemon_types = pokemon['types']  # Types from the spawned Pokemon
             for poke_type in pokemon_types:
                 type_lower = poke_type.lower()
                 quest_type = f'catch_{type_lower}'
