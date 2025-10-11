@@ -1455,8 +1455,7 @@ class GymBattleView(View):
         stat_changes = pkmn.get_move_stat_changes(move_name)
 
         if not stat_changes:
-            # Debug: log what we're looking for
-            print(f"DEBUG: No stat changes found for move '{move_name}' (original: '{move['name']}')")
+            # Move doesn't have stat changes (e.g., Confuse Ray, Thunder Wave, etc.)
             return ""
 
         messages = []
@@ -1955,8 +1954,7 @@ class BattleView(View):
         stat_changes = pkmn.get_move_stat_changes(move_name)
 
         if not stat_changes:
-            # Debug: log what we're looking for
-            print(f"DEBUG: No stat changes found for move '{move_name}' (original: '{move['name']}')")
+            # Move doesn't have stat changes (e.g., Confuse Ray, Thunder Wave, etc.)
             return ""
 
         messages = []
