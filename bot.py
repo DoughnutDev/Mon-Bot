@@ -331,9 +331,8 @@ async def on_message(message):
                 else:
                     avg_level = 10  # New players get easier trainers
 
-                # Trainer uses the wild Pokemon being caught (scaled to user's level)
-                # Make it slightly easier than user's average level
-                trainer_pokemon_level = max(1, int(avg_level * 0.8))  # 80% of user's average
+                # Trainer uses the wild Pokemon at a random level (1-15)
+                trainer_pokemon_level = random.randint(1, 15)
 
                 trainer_team = [{
                     'pokemon_id': pokemon['id'],
@@ -342,7 +341,7 @@ async def on_message(message):
 
                 # Send trainer appearance message
                 trainer_embed = discord.Embed(
-                    title=f"{trainer['sprite']} {trainer['name']} wants to battle!",
+                    title=f"{trainer['sprite']} {trainer['name']} wants to battle {message.author.display_name}!",
                     description=f"**\"{pokemon['name']}\"? That's MY Pokemon! Fight me for it!**",
                     color=discord.Color.red()
                 )
@@ -423,9 +422,39 @@ async def on_message(message):
                         embed = trainer_battle_view.create_selection_embed()
                         await interaction.followup.send(embed=embed, view=trainer_battle_view)
 
-                        # Disable this button
+                        # Disable both buttons
                         self.fight_button.disabled = True
+                        self.flee_button.disabled = True
                         await interaction.message.edit(view=self)
+
+                    @discord.ui.button(label="🏃 Flee", style=discord.ButtonStyle.secondary)
+                    async def flee_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                        if interaction.user.id != self.challenger_id:
+                            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                            return
+
+                        # Check if battle still exists
+                        if self.challenger_id not in active_trainer_battles:
+                            await interaction.response.send_message("❌ This trainer battle has expired!", ephemeral=True)
+                            return
+
+                        battle_data = active_trainer_battles[self.challenger_id]
+                        pokemon = battle_data['pokemon']
+
+                        # Remove from active battles
+                        del active_trainer_battles[self.challenger_id]
+
+                        # Create flee embed
+                        flee_embed = discord.Embed(
+                            title="🏃 Fled from Battle!",
+                            description=f"You ran away from the trainer battle!\n\n**{pokemon['name']}** escaped into the wild...",
+                            color=discord.Color.blue()
+                        )
+
+                        # Disable both buttons
+                        self.fight_button.disabled = True
+                        self.flee_button.disabled = True
+                        await interaction.response.edit_message(embed=flee_embed, view=self)
 
                 view = TrainerChallengeView(user_id)
                 await message.channel.send(embed=trainer_embed, view=view)

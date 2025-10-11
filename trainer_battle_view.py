@@ -61,6 +61,16 @@ class TrainerBattleView(View):
             min_values=1,
             max_values=1
         )
+
+        # Populate dropdown with user's Pokemon (limit to 25 for Discord)
+        for pokemon in user_pokemon[:25]:
+            level = pokemon.get('level', 1)
+            self.pokemon_select.add_option(
+                label=f"{pokemon['pokemon_name']} (Lv.{level})",
+                value=str(pokemon['id']),
+                description=f"#{pokemon['pokemon_id']} - {', '.join(pokemon.get('pokemon_types', ['Unknown']))}"
+            )
+
         self.pokemon_select.callback = self.pokemon_selected
         self.add_item(self.pokemon_select)
 
@@ -199,6 +209,16 @@ class TrainerBattleView(View):
             )
             move_button.callback = self.create_move_callback(i)
             self.add_item(move_button)
+
+        # Add flee button in last row
+        flee_button = Button(
+            label="🏃 Flee",
+            style=discord.ButtonStyle.secondary,
+            custom_id="flee",
+            row=2
+        )
+        flee_button.callback = self.flee_battle
+        self.add_item(flee_button)
 
     def create_move_callback(self, move_index: int):
         """Create callback for move button"""
@@ -484,6 +504,38 @@ class TrainerBattleView(View):
         embed.add_field(
             name="",
             value=f"**{self.wild_pokemon['name']}** got away... Better luck next time!",
+            inline=False
+        )
+
+        self.clear_items()
+        if self.battle_message:
+            await self.battle_message.edit(embed=embed, view=self)
+        else:
+            await interaction.followup.send(embed=embed)
+
+    async def flee_battle(self, interaction: discord.Interaction):
+        """Handle fleeing from battle"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        # Clear battle state from bot module
+        import bot
+        if self.user.id in bot.active_trainer_battles:
+            del bot.active_trainer_battles[self.user.id]
+
+        # Create flee embed
+        embed = discord.Embed(
+            title="🏃 Fled from Battle!",
+            description=f"You ran away from **{self.trainer['class']} {self.trainer['name']}**!",
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(
+            name="",
+            value=f"**{self.wild_pokemon['name']}** escaped into the wild...",
             inline=False
         )
 
