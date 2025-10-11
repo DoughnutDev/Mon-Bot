@@ -3002,7 +3002,6 @@ async def pack(interaction: discord.Interaction):
 
     # Open the pack
     import json
-    pack_config = json.loads(pack_to_open['pack_config']) if isinstance(pack_to_open['pack_config'], str) else pack_to_open['pack_config']
 
     # Use the pack (removes it from inventory)
     pack_data = await db.use_pack(user_id, guild_id, pack_to_open['id'])
@@ -3010,6 +3009,9 @@ async def pack(interaction: discord.Interaction):
     if not pack_data:
         await interaction.followup.send("Failed to open pack. Please try again!")
         return
+
+    # Parse pack config from the returned pack_data
+    pack_config = json.loads(pack_data['pack_config']) if isinstance(pack_data['pack_config'], str) else pack_data['pack_config']
 
     # Determine pack size based on config
     min_poke = pack_config['min_pokemon']
