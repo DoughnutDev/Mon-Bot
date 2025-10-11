@@ -687,9 +687,14 @@ class GymBattleView(View):
         self.already_defeated = already_defeated
 
         # Battle state
-        self.user_choice = None
+        self.user_team = []  # User's team of Pokemon
+        self.user_pokemon_index = 0  # Current user Pokemon index
         self.gym_pokemon_index = 0  # Current gym leader Pokemon index
         self.battle_started = False
+
+        # Current active Pokemon (set when battle starts)
+        self.user_choice = None
+        self.gym_current_pokemon = None
 
         # HP tracking
         self.user_current_hp = 0
@@ -717,11 +722,14 @@ class GymBattleView(View):
         self.gym_status = None
         self.gym_status_turns = 0
 
-        # Create Pokemon selection dropdown
+        # Team size based on gym leader's team
+        self.team_size = len(self.gym_data['pokemon'])
+
+        # Create Pokemon selection dropdown (allow multiple selection)
         self.pokemon_select = Select(
-            placeholder="Choose your Pokemon...",
-            min_values=1,
-            max_values=1
+            placeholder=f"Choose {self.team_size} Pokemon for your team...",
+            min_values=self.team_size,
+            max_values=self.team_size
         )
         self.pokemon_select.callback = self.pokemon_selected
         self.add_item(self.pokemon_select)
@@ -763,66 +771,75 @@ class GymBattleView(View):
                 inline=False
             )
 
-        embed.set_footer(text="Select your Pokemon below to begin the challenge!")
+        embed.set_footer(text=f"Select {self.team_size} Pokemon for your team to begin the challenge!")
 
         return embed
 
     async def pokemon_selected(self, interaction: discord.Interaction):
-        """Handle Pokemon selection and start battle"""
+        """Handle Pokemon team selection and start battle"""
         if interaction.user.id != self.user.id:
             await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
             return
 
         await interaction.response.defer()
 
-        # Get selected Pokemon
-        selected_id = int(self.pokemon_select.values[0])
-        selected_pokemon = next((p for p in self.user_pokemon if p['id'] == selected_id), None)
+        # Get selected Pokemon IDs
+        selected_ids = [int(val) for val in self.pokemon_select.values]
 
-        if not selected_pokemon:
-            await interaction.followup.send("❌ Pokemon not found!", ephemeral=True)
+        # Build user's team
+        async with aiohttp.ClientSession() as session:
+            for selected_id in selected_ids:
+                selected_pokemon = next((p for p in self.user_pokemon if p['id'] == selected_id), None)
+
+                if not selected_pokemon:
+                    continue
+
+                # Fetch Pokemon data from PokeAPI
+                async with session.get(f'https://pokeapi.co/api/v2/pokemon/{selected_pokemon["pokemon_id"]}') as resp:
+                    if resp.status != 200:
+                        continue
+                    poke_data = await resp.json()
+
+                # Get Pokemon types
+                types = [t['type']['name'] for t in poke_data['types']]
+
+                # Get 4 random moves
+                moves = await fetch_pokemon_moves(session, selected_pokemon['pokemon_id'], 4)
+
+                # Get species level
+                species_level = await db.get_species_level(self.user.id, self.guild_id, selected_pokemon['pokemon_id'], selected_pokemon['pokemon_name'])
+
+                # Calculate stats
+                base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
+                user_stats = pkmn.calculate_battle_stats(base_stats, species_level)
+
+                # Add to team
+                self.user_team.append({
+                    'id': selected_pokemon['id'],
+                    'pokemon_name': selected_pokemon['pokemon_name'],
+                    'pokemon_id': selected_pokemon['pokemon_id'],
+                    'types': types,
+                    'moves': moves,
+                    'level': species_level,
+                    'stats': user_stats,
+                    'sprite': poke_data['sprites']['front_default'],
+                    'max_hp': user_stats['hp'],
+                    'current_hp': user_stats['hp']
+                })
+
+        if not self.user_team:
+            await interaction.followup.send("❌ Error loading Pokemon team!", ephemeral=True)
             return
 
-        # Fetch Pokemon data from PokeAPI
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f'https://pokeapi.co/api/v2/pokemon/{selected_pokemon["pokemon_id"]}') as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("❌ Error loading Pokemon data!", ephemeral=True)
-                    return
-                poke_data = await resp.json()
-
-        # Get Pokemon types
-        types = [t['type']['name'] for t in poke_data['types']]
-
-        # Get 4 random moves
-        async with aiohttp.ClientSession() as move_session:
-            moves = await fetch_pokemon_moves(move_session, selected_pokemon['pokemon_id'], 4)
-
-        # Get species level
-        species_level = await db.get_species_level(self.user.id, self.guild_id, selected_pokemon['pokemon_id'], selected_pokemon['pokemon_name'])
-
-        # Calculate stats
-        base_stats = {stat['stat']['name']: stat['base_stat'] for stat in poke_data['stats']}
-        user_stats = pkmn.calculate_battle_stats(base_stats, species_level)
-
-        self.user_choice = {
-            'id': selected_pokemon['id'],
-            'pokemon_name': selected_pokemon['pokemon_name'],
-            'pokemon_id': selected_pokemon['pokemon_id'],
-            'types': types,
-            'moves': moves,
-            'level': species_level,
-            'stats': user_stats,
-            'sprite': poke_data['sprites']['front_default']
-        }
-
-        # Initialize HP
-        self.user_max_hp = user_stats['hp']
-        self.user_current_hp = user_stats['hp']
+        # Set first Pokemon as active
+        self.user_choice = self.user_team[0]
+        self.user_max_hp = self.user_choice['max_hp']
+        self.user_current_hp = self.user_choice['current_hp']
 
         # Start battle
         self.battle_started = True
         self.gym_pokemon_index = 0
+        self.user_pokemon_index = 0
 
         # Load first gym Pokemon
         await self.load_gym_pokemon()
@@ -1009,8 +1026,28 @@ class GymBattleView(View):
                 # Check if user Pokemon fainted
                 if self.user_current_hp <= 0:
                     self.user_current_hp = 0
-                    await self.handle_defeat(interaction)
-                    return
+                    self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
+
+                    # Check if user has more Pokemon
+                    if self.user_pokemon_index < len(self.user_team) - 1:
+                        self.user_pokemon_index += 1
+                        self.user_choice = self.user_team[self.user_pokemon_index]
+                        self.user_max_hp = self.user_choice['max_hp']
+                        self.user_current_hp = self.user_choice['current_hp']
+
+                        # Reset stat stages and status for new Pokemon
+                        self.user_stat_stages = {
+                            'attack': 0, 'defense': 0, 'special-attack': 0,
+                            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                        }
+                        self.user_status = None
+                        self.user_status_turns = 0
+
+                        self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                    else:
+                        # User is out of Pokemon
+                        await self.handle_defeat(interaction)
+                        return
         else:
             # Gym Pokemon goes first
             # Check if gym Pokemon is immobilized
@@ -1051,8 +1088,28 @@ class GymBattleView(View):
             # Check if user Pokemon fainted
             if self.user_current_hp <= 0:
                 self.user_current_hp = 0
-                await self.handle_defeat(interaction)
-                return
+                self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
+
+                # Check if user has more Pokemon
+                if self.user_pokemon_index < len(self.user_team) - 1:
+                    self.user_pokemon_index += 1
+                    self.user_choice = self.user_team[self.user_pokemon_index]
+                    self.user_max_hp = self.user_choice['max_hp']
+                    self.user_current_hp = self.user_choice['current_hp']
+
+                    # Reset stat stages and status for new Pokemon
+                    self.user_stat_stages = {
+                        'attack': 0, 'defense': 0, 'special-attack': 0,
+                        'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                    }
+                    self.user_status = None
+                    self.user_status_turns = 0
+
+                    self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                else:
+                    # User is out of Pokemon
+                    await self.handle_defeat(interaction)
+                    return
 
             # User's turn
             # Check if user is immobilized
@@ -1113,8 +1170,28 @@ class GymBattleView(View):
         # Check if either Pokemon fainted from status damage
         if self.user_current_hp <= 0:
             self.user_current_hp = 0
-            await self.handle_defeat(interaction)
-            return
+            self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
+
+            # Check if user has more Pokemon
+            if self.user_pokemon_index < len(self.user_team) - 1:
+                self.user_pokemon_index += 1
+                self.user_choice = self.user_team[self.user_pokemon_index]
+                self.user_max_hp = self.user_choice['max_hp']
+                self.user_current_hp = self.user_choice['current_hp']
+
+                # Reset stat stages and status for new Pokemon
+                self.user_stat_stages = {
+                    'attack': 0, 'defense': 0, 'special-attack': 0,
+                    'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                }
+                self.user_status = None
+                self.user_status_turns = 0
+
+                self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+            else:
+                # User is out of Pokemon
+                await self.handle_defeat(interaction)
+                return
 
         if self.gym_current_hp <= 0:
             self.gym_current_hp = 0
@@ -1413,8 +1490,12 @@ class GymBattleView(View):
         if active_stages:
             user_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
 
+        # Show team status
+        alive_count = sum(1 for p in self.user_team if p['current_hp'] > 0)
+        team_status = f"Team: {alive_count}/{len(self.user_team)}"
+
         embed.add_field(
-            name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']})",
+            name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']}) - {team_status}",
             value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}{user_status_text}{user_stages_text}",
             inline=True
         )
