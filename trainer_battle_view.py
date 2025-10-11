@@ -28,6 +28,7 @@ class TrainerBattleView(View):
         self.trainer_pokemon_index = 0  # Current trainer Pokemon
         self.battle_started = False
         self.battle_message = None
+        self.selection_message = None  # Track the initial selection message
 
         # HP tracking
         self.user_current_hp = 0
@@ -164,6 +165,11 @@ class TrainerBattleView(View):
         self.battle_started = True
         self.turn_count = 0
         self.battle_log = [f"⚔️ **{self.trainer['name']} challenges you to a battle!**"]
+
+        # Store the selection message and disable the dropdown
+        self.selection_message = interaction.message
+        self.pokemon_select.disabled = True
+        await self.selection_message.edit(view=self)
 
         # Create battle UI
         self.clear_items()
