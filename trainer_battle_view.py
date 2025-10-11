@@ -73,10 +73,15 @@ class TrainerBattleView(View):
             if species_id not in seen_species:
                 seen_species.add(species_id)
                 level = pokemon.get('level', 1)
+
+                # Get Pokemon types from local data
+                types = poke_data.get_pokemon_types(species_id)
+                types_str = '/'.join([t.title() for t in types]) if types else 'Unknown'
+
                 self.pokemon_select.add_option(
                     label=f"{pokemon['pokemon_name']} (Lv.{level})",
                     value=str(pokemon['id']),
-                    description=f"#{pokemon['pokemon_id']} - {', '.join(pokemon.get('pokemon_types', ['Unknown']))}"
+                    description=f"#{pokemon['pokemon_id']} - {types_str}"
                 )
 
         self.pokemon_select.callback = self.pokemon_selected
@@ -408,6 +413,9 @@ class TrainerBattleView(View):
             description=f"**{self.user.display_name}** vs **{self.trainer['class']} {self.trainer['name']}**",
             color=discord.Color.orange()
         )
+
+        # Add battle GIF
+        embed.set_image(url="https://media4.giphy.com/media/v1.Y2lkPTZjMDliOTUyNTQwbzMxOWEzYjAwdDZsb24wMXN5Z3pwZXl5NHNxNm10M3NkZHFhbCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/G9qfCvxlwGAaQ/200.gif")
 
         # User's Pokemon
         user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
