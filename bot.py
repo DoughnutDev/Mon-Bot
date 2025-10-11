@@ -3543,17 +3543,25 @@ async def pack(interaction: discord.Interaction):
         options = []
         for i, pack in enumerate(user_packs[:25]):  # Max 25 options
             # Ensure pack_config is parsed as dict
+            config = None
             if isinstance(pack['pack_config'], str):
                 try:
                     config = json.loads(pack['pack_config'])
                 except (json.JSONDecodeError, TypeError):
                     # Skip packs with invalid config
                     continue
-            else:
+            elif isinstance(pack['pack_config'], dict):
                 config = pack['pack_config']
+            else:
+                # Unknown type, skip this pack
+                continue
 
-            label = f"{pack['pack_name']} ({config['min_pokemon']}-{config['max_pokemon']} Pokemon)"
-            options.append(discord.SelectOption(label=label, value=str(pack['id']), description=f"{config['shiny_chance']*100}% shiny chance"))
+            # Validate config has required fields
+            if not config or not isinstance(config, dict):
+                continue
+
+            label = f"{pack['pack_name']} ({config.get('min_pokemon', 0)}-{config.get('max_pokemon', 0)} Pokemon)"
+            options.append(discord.SelectOption(label=label, value=str(pack['id']), description=f"{config.get('shiny_chance', 0)*100}% shiny chance"))
 
         select = Select(placeholder="Select a pack to open...", options=options)
 
@@ -3572,16 +3580,23 @@ async def pack(interaction: discord.Interaction):
     try:
         if isinstance(pack_data['pack_config'], str):
             pack_config = json.loads(pack_data['pack_config'])
-        else:
+        elif isinstance(pack_data['pack_config'], dict):
             pack_config = pack_data['pack_config']
+        else:
+            raise TypeError(f"Unexpected pack_config type: {type(pack_data['pack_config'])}")
+
+        # Validate it's a dict
+        if not isinstance(pack_config, dict):
+            raise TypeError(f"pack_config is not a dict after parsing: {type(pack_config)}")
+
     except (json.JSONDecodeError, TypeError, KeyError) as e:
         print(f"[ERROR] Failed to parse pack config: {e}")
         await interaction.followup.send("Error opening pack - invalid pack configuration!")
         return
 
     # Determine pack size based on config
-    min_poke = pack_config['min_pokemon']
-    max_poke = pack_config['max_pokemon']
+    min_poke = pack_config.get('min_pokemon', 3)
+    max_poke = pack_config.get('max_pokemon', 5)
     mega_chance = pack_config.get('mega_pack_chance', 0)
     mega_size = pack_config.get('mega_pack_size', 0)
 
