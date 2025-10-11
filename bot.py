@@ -916,7 +916,7 @@ class GymBattleView(View):
                 custom_id="switch_pokemon",
                 row=2
             )
-            switch_button.callback = self.switch_pokemon_callback
+            switch_button.callback = self.switch_pokemon_callback()
             self.add_item(switch_button)
 
     def switch_pokemon_callback(self):
