@@ -341,9 +341,10 @@ async def on_message(message):
                 }]
 
                 # Send trainer appearance message
+                trainer_quote = trainer.get('quote', "Let's battle!")
                 trainer_embed = discord.Embed(
                     title=f"{trainer['sprite']} {trainer['name']} wants to battle {message.author.display_name}!",
-                    description=f"**\"{pokemon['name']}\"? That's MY Pokemon! Fight me for it!**\n\n💬 *\"{trainer.get('quote', 'Let\\'s battle!')}\"*",
+                    description=f'**"{pokemon["name"]}"? That\'s MY Pokemon! Fight me for it!**\n\n💬 *"{trainer_quote}"*',
                     color=discord.Color.red()
                 )
 
