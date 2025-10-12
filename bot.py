@@ -4311,7 +4311,7 @@ class TrainerBattlePokemonSelect(View):
         # Update embed with new page info
         embed = interaction.message.embeds[0]
         if self.total_pages > 1:
-            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages}")
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -4327,7 +4327,7 @@ class TrainerBattlePokemonSelect(View):
         # Update embed with new page info
         embed = interaction.message.embeds[0]
         if self.total_pages > 1:
-            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages}")
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -4759,7 +4759,7 @@ async def trainer(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="⚔️ Trainer Battle",
-        description=f"Select a Pokemon to battle against a trainer!\n\n**Battles Remaining:** {cooldown['battles_remaining']}/3",
+        description=f"Select a Pokemon to battle against a trainer!\n\nThe trainer will use a Pokemon with a similar level to yours (±2 levels).\n\n**Battles Remaining:** {cooldown['battles_remaining']}/3",
         color=discord.Color.blue()
     )
     embed.add_field(
@@ -4770,9 +4770,7 @@ async def trainer(interaction: discord.Interaction):
 
     # Add page info if there are multiple pages
     if view.total_pages > 1:
-        embed.set_footer(text=f"Page 1/{view.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
-    else:
-        embed.set_footer(text="The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+        embed.set_footer(text=f"Page 1/{view.total_pages}")
 
     await interaction.followup.send(embed=embed, view=view)
 
