@@ -1532,6 +1532,10 @@ class GymBattleView(View):
                         self.user_status_turns = 0
 
                         self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+
+                        # Update move buttons for new Pokemon
+                        self.clear_items()
+                        await self.create_battle_buttons()
                     else:
                         # User is out of Pokemon
                         await self.handle_defeat(interaction)
@@ -1596,6 +1600,10 @@ class GymBattleView(View):
                     self.user_status_turns = 0
 
                     self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+
+                    # Update move buttons for new Pokemon
+                    self.clear_items()
+                    await self.create_battle_buttons()
                 else:
                     # User is out of Pokemon
                     await self.handle_defeat(interaction)
@@ -1679,6 +1687,10 @@ class GymBattleView(View):
                 self.user_status_turns = 0
 
                 self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+
+                # Update move buttons for new Pokemon
+                self.clear_items()
+                await self.create_battle_buttons()
             else:
                 # User is out of Pokemon
                 await self.handle_defeat(interaction)
