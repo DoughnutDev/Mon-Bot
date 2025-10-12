@@ -4260,8 +4260,8 @@ class TrainerBattlePokemonSelect(View):
         end_idx = min(start_idx + self.pokemon_per_page, len(self.pokemon_list))
         page_pokemon = self.pokemon_list[start_idx:end_idx]
 
-        # Create select
-        select = Select(
+        # Create select and store as instance variable
+        self.pokemon_select = Select(
             placeholder="Choose your Pokemon...",
             min_values=1,
             max_values=1
@@ -4272,14 +4272,14 @@ class TrainerBattlePokemonSelect(View):
             types = poke_data.get_pokemon_types(pokemon['pokemon_id'])
             types_str = '/'.join([t.title() for t in types]) if types else 'Unknown'
 
-            select.add_option(
+            self.pokemon_select.add_option(
                 label=f"{pokemon['pokemon_name']} (Lv.{level})",
                 value=str(pokemon['pokemon_id']),
                 description=f"#{pokemon['pokemon_id']} - {types_str}"
             )
 
-        select.callback = self.pokemon_selected
-        self.add_item(select)
+        self.pokemon_select.callback = self.pokemon_selected
+        self.add_item(self.pokemon_select)
 
         # Add pagination buttons if needed
         if self.total_pages > 1:
@@ -4307,7 +4307,13 @@ class TrainerBattlePokemonSelect(View):
 
         self.current_page = max(0, self.current_page - 1)
         self.update_select()
-        await interaction.response.edit_message(view=self)
+
+        # Update embed with new page info
+        embed = interaction.message.embeds[0]
+        if self.total_pages > 1:
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def next_page(self, interaction: discord.Interaction):
         """Go to next page"""
@@ -4317,7 +4323,13 @@ class TrainerBattlePokemonSelect(View):
 
         self.current_page = min(self.total_pages - 1, self.current_page + 1)
         self.update_select()
-        await interaction.response.edit_message(view=self)
+
+        # Update embed with new page info
+        embed = interaction.message.embeds[0]
+        if self.total_pages > 1:
+            embed.set_footer(text=f"Page {self.current_page + 1}/{self.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def pokemon_selected(self, interaction: discord.Interaction):
         """Handle Pokemon selection and start battle"""
@@ -4327,8 +4339,8 @@ class TrainerBattlePokemonSelect(View):
 
         await interaction.response.defer()
 
-        # Get selected Pokemon ID
-        selected_pokemon_id = int(interaction.message.components[0].children[0].values[0])
+        # Get selected Pokemon ID from the select component
+        selected_pokemon_id = int(self.pokemon_select.values[0])
         selected_pokemon = next((p for p in self.pokemon_list if p['pokemon_id'] == selected_pokemon_id), None)
 
         if not selected_pokemon:
@@ -4755,7 +4767,12 @@ async def trainer(interaction: discord.Interaction):
         value="🏆 Win: **50 XP**\n💫 Lose: **10 XP**",
         inline=False
     )
-    embed.set_footer(text="The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+
+    # Add page info if there are multiple pages
+    if view.total_pages > 1:
+        embed.set_footer(text=f"Page 1/{view.total_pages} • The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+    else:
+        embed.set_footer(text="The trainer will use a Pokemon with a similar level to yours (±2 levels)")
 
     await interaction.followup.send(embed=embed, view=view)
 
