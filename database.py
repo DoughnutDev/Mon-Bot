@@ -553,6 +553,26 @@ async def get_leaderboard_legendaries(guild_id: int, limit: int = 10) -> List[Di
         return [dict(row) for row in rows]
 
 
+async def get_leaderboard_shinies(guild_id: int, limit: int = 10) -> List[Dict]:
+    """Get leaderboard by shiny Pokemon caught"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                user_id,
+                COUNT(*) as shiny_count
+            FROM catches
+            WHERE guild_id = $1 AND is_shiny = TRUE
+            GROUP BY user_id
+            ORDER BY shiny_count DESC
+            LIMIT $2
+        ''', guild_id, limit)
+
+        return [dict(row) for row in rows]
+
+
 async def get_leaderboard_collection_value(guild_id: int, limit: int = 10) -> List[Dict]:
     """Get leaderboard by total collection value (based on sell prices)"""
     if not pool:

@@ -4903,6 +4903,133 @@ async def badges(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name='shinies', description='View your shiny Pokemon collection!')
+async def shinies(interaction: discord.Interaction):
+    """Display user's shiny Pokemon collection"""
+    # Defer immediately to prevent timeout
+    await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Get user's shiny Pokemon
+    shiny_pokemon = await db.get_shiny_pokemon(interaction.user.id, interaction.guild.id)
+    shiny_count = len(shiny_pokemon)
+
+    # Get total Pokemon count for comparison
+    user_stats = await db.get_user_stats(interaction.user.id, interaction.guild.id)
+    total_caught = user_stats.get('total', 0)
+
+    # Calculate shiny rate
+    shiny_rate = (shiny_count / total_caught * 100) if total_caught > 0 else 0
+
+    # Create embed
+    embed = discord.Embed(
+        title=f"✨ {interaction.user.display_name}'s Shiny Collection",
+        description=f"**Shinies Caught: {shiny_count}**\n**Total Pokemon: {total_caught}**\n**Shiny Rate: {shiny_rate:.2f}%**\n\n*Shiny Pokemon are extremely rare with only a 0.2% spawn chance!*",
+        color=discord.Color.purple()
+    )
+
+    if shiny_count == 0:
+        embed.add_field(
+            name="🔍 No Shinies Yet",
+            value="Keep catching Pokemon! Shinies have a 1/512 (0.2%) chance of appearing.\n\nYou'll know it's shiny when you see the ✨ sparkles and purple embed!",
+            inline=False
+        )
+    else:
+        # Display shiny Pokemon list
+        shiny_list = []
+        for poke in shiny_pokemon:
+            count_text = f"x{poke['count']}" if poke['count'] > 1 else ""
+            shiny_list.append(f"✨ **#{poke['pokemon_id']} {poke['pokemon_name'].title()}** {count_text}")
+
+        # Split into columns if more than 10
+        if len(shiny_list) <= 10:
+            embed.add_field(
+                name="Shiny Pokemon",
+                value="\n".join(shiny_list),
+                inline=False
+            )
+        else:
+            # Split into two columns
+            half = (len(shiny_list) + 1) // 2
+            embed.add_field(
+                name="Shiny Pokemon (Part 1)",
+                value="\n".join(shiny_list[:half]),
+                inline=True
+            )
+            embed.add_field(
+                name="Shiny Pokemon (Part 2)",
+                value="\n".join(shiny_list[half:]),
+                inline=True
+            )
+
+        # Show the first shiny as thumbnail
+        if shiny_pokemon:
+            first_shiny_sprite = poke_data.get_pokemon_sprite(shiny_pokemon[0]['pokemon_id'], shiny=True)
+            if first_shiny_sprite:
+                embed.set_thumbnail(url=first_shiny_sprite)
+
+    embed.set_footer(text=f"Odds: 1/512 (0.195%) • Keep hunting for that sparkle! ✨")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name='shinyleaderboard', description='View the server shiny Pokemon leaderboard!')
+async def shinyleaderboard(interaction: discord.Interaction):
+    """Display server-wide shiny Pokemon leaderboard"""
+    # Defer immediately to prevent timeout
+    await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Get top 10 shiny collectors
+    leaderboard = await db.get_leaderboard_shinies(interaction.guild.id, limit=10)
+
+    if not leaderboard:
+        await interaction.followup.send("No shiny Pokemon have been caught in this server yet! Be the first! ✨", ephemeral=True)
+        return
+
+    # Create embed
+    embed = discord.Embed(
+        title=f"✨ {interaction.guild.name} - Shiny Leaderboard",
+        description="**Top 10 Shiny Pokemon Collectors**\n\n*Shiny Pokemon are extremely rare with only a 0.2% spawn chance!*",
+        color=discord.Color.purple()
+    )
+
+    # Build leaderboard list
+    leaderboard_text = []
+    for idx, entry in enumerate(leaderboard, start=1):
+        user = await bot.fetch_user(entry['user_id'])
+        username = user.display_name if user else "Unknown User"
+
+        # Medal emojis for top 3
+        if idx == 1:
+            medal = "🥇"
+        elif idx == 2:
+            medal = "🥈"
+        elif idx == 3:
+            medal = "🥉"
+        else:
+            medal = f"**{idx}.**"
+
+        shiny_count = entry['shiny_count']
+        leaderboard_text.append(f"{medal} **{username}** - {shiny_count} shinies")
+
+    embed.add_field(
+        name="Rankings",
+        value="\n".join(leaderboard_text),
+        inline=False
+    )
+
+    embed.set_footer(text=f"Odds: 1/512 (0.195%) • Use /shinies to view your collection!")
+
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name='gym', description='Challenge Gym Leaders and earn badges!')
 async def gym(interaction: discord.Interaction):
     """Challenge gym leaders in any order"""
@@ -5968,7 +6095,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="📊 Progress & Stats",
-        value="**/quests** - View daily quests (earn Pokedollars!)\n**/stats [pokemon]** - View detailed stats for your Pokemon\n**/pokedex [@user]** - View collected Pokemon\n**/count** - See how many of each Pokemon you have",
+        value="**/quests** - View daily quests (earn Pokedollars!)\n**/stats [pokemon]** - View detailed stats for your Pokemon\n**/pokedex [@user]** - View collected Pokemon\n**/count** - See how many of each Pokemon you have\n**/shinies** - View your shiny Pokemon collection ✨",
         inline=False
     )
 
@@ -5992,7 +6119,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="📚 Info & Lore",
-        value="**/wiki [pokemon]** - View Pokemon lore & Pokedex entries\n**/leaderboard** - Server rankings",
+        value="**/wiki [pokemon]** - View Pokemon lore & Pokedex entries\n**/leaderboard** - Server rankings\n**/shinyleaderboard** - Top shiny collectors ✨",
         inline=False
     )
 
