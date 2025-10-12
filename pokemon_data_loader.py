@@ -49,12 +49,12 @@ def get_pokemon_stats(pokemon_id: int) -> Dict:
 
 
 def get_pokemon_sprite(pokemon_id: int, shiny: bool = False) -> Optional[str]:
-    """Get animated Pokemon sprite URL (Pokemon Showdown style - larger and smoother)"""
-    base_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown"
+    """Get Pokemon sprite URL - using official artwork for better quality"""
+    base_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork"
 
     if shiny:
-        return f"{base_url}/shiny/{pokemon_id}.gif"
-    return f"{base_url}/{pokemon_id}.gif"
+        return f"{base_url}/shiny/{pokemon_id}.png"
+    return f"{base_url}/{pokemon_id}.png"
 
 
 def get_pokemon_moves(pokemon_id: int, num_moves: int = 4, max_level: int = 100) -> List[Dict]:
