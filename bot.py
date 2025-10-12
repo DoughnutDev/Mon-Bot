@@ -353,7 +353,7 @@ async def on_message(message):
 
             # Update sprite to shiny version if shiny
             if is_shiny:
-                pokemon['sprite'] = pokemon_data.get_pokemon_sprite(pokemon['id'], shiny=True)
+                pokemon['sprite'] = poke_data.get_pokemon_sprite(pokemon['id'], shiny=True)
 
             # 15% chance for a trainer to appear and claim the Pokemon
             if random.random() < 0.15:
