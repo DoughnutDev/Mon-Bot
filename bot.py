@@ -570,6 +570,21 @@ async def on_message(message):
                     color=discord.Color.green()
                 )
                 await message.channel.send(embed=quest_embed)
+
+                # Check if ALL quests are now complete
+                all_quests = await db.get_daily_quests(user_id, guild_id)
+                if all_quests:
+                    all_complete = all(
+                        all_quests.get(f'quest_{i}_completed', False)
+                        for i in range(1, 4)
+                    )
+                    if all_complete:
+                        all_complete_embed = discord.Embed(
+                            title="🎉 All Daily Quests Complete!",
+                            description="Congratulations! You've completed all your daily quests!\nNew quests will be available tomorrow.",
+                            color=discord.Color.gold()
+                        )
+                        await message.channel.send(embed=all_complete_embed)
         else:
             # No active spawn - check if someone just caught it
             if channel_id in recent_catches:
@@ -2625,7 +2640,15 @@ class BattleView(View):
         )
 
         # Update quest progress for winner (win_battles)
-        await db.update_quest_progress(winner_id, self.guild_id, 'win_battles')
+        battle_quest_result = await db.update_quest_progress(winner_id, self.guild_id, 'win_battles')
+
+        # Notify if quest completed
+        if battle_quest_result and battle_quest_result.get('completed_quests'):
+            quest_currency = battle_quest_result.get('total_currency', 0)
+            quest_count = len(battle_quest_result['completed_quests'])
+            self.battle_log.append("")
+            self.battle_log.append(f"✅ **{winner_user.display_name} completed {quest_count} daily quest(s)!**")
+            self.battle_log.append(f"Earned **₽{quest_currency}** Pokedollars!")
 
         # Award Pokemon species XP
         winner_xp_result = await db.add_species_xp(
@@ -3268,8 +3291,30 @@ class TradeView(View):
             if success:
                 self.trade_completed = True
                 # Update quest progress for both users (complete_trade)
-                await db.update_quest_progress(self.user1.id, self.guild_id, 'complete_trade')
-                await db.update_quest_progress(self.user2.id, self.guild_id, 'complete_trade')
+                user1_trade_quest = await db.update_quest_progress(self.user1.id, self.guild_id, 'complete_trade')
+                user2_trade_quest = await db.update_quest_progress(self.user2.id, self.guild_id, 'complete_trade')
+
+                # Send quest completion notifications
+                if user1_trade_quest and user1_trade_quest.get('completed_quests'):
+                    quest_currency = user1_trade_quest.get('total_currency', 0)
+                    quest_count = len(user1_trade_quest['completed_quests'])
+                    quest_embed = discord.Embed(
+                        title="✅ Daily Quest Complete!",
+                        description=f"{self.user1.mention} completed {quest_count} quest(s) and earned **₽{quest_currency}**!",
+                        color=discord.Color.green()
+                    )
+                    await interaction.channel.send(embed=quest_embed)
+
+                if user2_trade_quest and user2_trade_quest.get('completed_quests'):
+                    quest_currency = user2_trade_quest.get('total_currency', 0)
+                    quest_count = len(user2_trade_quest['completed_quests'])
+                    quest_embed = discord.Embed(
+                        title="✅ Daily Quest Complete!",
+                        description=f"{self.user2.mention} completed {quest_count} quest(s) and earned **₽{quest_currency}**!",
+                        color=discord.Color.green()
+                    )
+                    await interaction.channel.send(embed=quest_embed)
+
                 # Disable all buttons
                 for item in self.children:
                     item.disabled = True
@@ -4053,7 +4098,18 @@ async def pack(interaction: discord.Interaction):
         return
 
     # Update quest progress
-    await db.update_quest_progress(user_id, guild_id, 'open_packs')
+    pack_quest_result = await db.update_quest_progress(user_id, guild_id, 'open_packs')
+
+    # Send quest completion notification if needed
+    if pack_quest_result and pack_quest_result.get('completed_quests'):
+        quest_currency = pack_quest_result.get('total_currency', 0)
+        quest_count = len(pack_quest_result['completed_quests'])
+        quest_embed = discord.Embed(
+            title="✅ Daily Quest Complete!",
+            description=f"You completed {quest_count} quest(s) and earned **₽{quest_currency}**!",
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=quest_embed)
 
     # Create pack opening embed
     title = "🎉 MEGA PACK! 🎉" if is_mega_pack else f"📦 {pack_to_open['pack_name']} Opened!"
