@@ -31,14 +31,14 @@ async def migrate():
             ADD COLUMN IF NOT EXISTS is_shiny BOOLEAN DEFAULT FALSE
         ''')
 
-        print("✅ Successfully added is_shiny column!")
+        print("Successfully added is_shiny column!")
         print("All existing Pokemon are marked as non-shiny (is_shiny = FALSE)")
 
         await conn.close()
         print("Database connection closed.")
 
     except Exception as e:
-        print(f"❌ Error during migration: {e}")
+        print(f"Error during migration: {e}")
         import traceback
         traceback.print_exc()
 
