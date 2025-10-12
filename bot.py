@@ -4841,22 +4841,30 @@ async def badges(interaction: discord.Interaction):
         color=discord.Color.gold() if badge_count == 8 else discord.Color.blue()
     )
 
-    # Add each gym's badge status as fields with icons
+    # Add each gym's badge status as a compact list
+    badge_list = []
     for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
         has_badge = gym_key in user_badges
 
         if has_badge:
-            field_name = f"{gym_data['badge_emoji']} {gym_data['badge']}"
-            field_value = f"**{gym_data['name']}** - {gym_data['location']}\n✅ Earned!"
+            status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}"
         else:
-            field_name = f"⭕ {gym_data['badge']}"
-            field_value = f"**{gym_data['name']}** - {gym_data['location']}\n❌ Not earned"
+            status = f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~ - {gym_data['name']}"
 
-        embed.add_field(
-            name=field_name,
-            value=field_value,
-            inline=True
-        )
+        badge_list.append(status)
+
+    # Split into two columns for better layout
+    half = len(badge_list) // 2
+    embed.add_field(
+        name="Kanto Badges (Part 1)",
+        value="\n".join(badge_list[:half]),
+        inline=True
+    )
+    embed.add_field(
+        name="Kanto Badges (Part 2)",
+        value="\n".join(badge_list[half:]),
+        inline=True
+    )
 
     # Set the first earned badge as thumbnail, or the first badge icon if none earned
     first_badge = None
