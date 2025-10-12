@@ -5910,7 +5910,7 @@ async def help_command(interaction: discord.Interaction):
 
     embed.add_field(
         name="⚔️ Battles",
-        value="**/battle @user** - PvP battle with another player\n**/gym** - Challenge Kanto Gym Leaders\n**/badges** - View your gym badge collection\n• Trainer battles: Random encounters when catching Pokemon",
+        value="**/battle @user** - PvP battle with another player\n**/trainer** - Battle trainers for XP (3 per hour)\n**/gym** - Challenge Kanto Gym Leaders\n**/badges** - View your gym badge collection\n• Wild trainer battles: 15% chance when catching Pokemon",
         inline=False
     )
 
