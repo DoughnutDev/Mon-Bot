@@ -943,10 +943,13 @@ class GymBattleView(View):
 
         # Create dropdown (allows selecting/deselecting on current page)
         # Changed to allow 0 selections so users can navigate pages without selecting
+        row_offset = 1 if self.selected_pokemon_ids else 0  # Adjust if selection button exists
+
         self.pokemon_select = Select(
             placeholder=f"Add/Remove Pokemon from team...",
             min_values=0,
-            max_values=min(len(page_pokemon), 25)
+            max_values=min(len(page_pokemon), 25),
+            row=row_offset
         )
 
         for pokemon in page_pokemon:
@@ -971,7 +974,7 @@ class GymBattleView(View):
                 style=discord.ButtonStyle.secondary,
                 disabled=(self.current_page == 0 or self.battle_started),
                 custom_id="prev_page",
-                row=1
+                row=row_offset + 1
             )
             prev_button.callback = self.previous_page
             self.add_item(prev_button)
@@ -981,7 +984,7 @@ class GymBattleView(View):
                 style=discord.ButtonStyle.secondary,
                 disabled=(self.current_page >= self.total_pages - 1 or self.battle_started),
                 custom_id="next_page",
-                row=1
+                row=row_offset + 1
             )
             next_button.callback = self.next_page
             self.add_item(next_button)
@@ -992,7 +995,7 @@ class GymBattleView(View):
             style=discord.ButtonStyle.green if len(self.selected_pokemon_ids) == self.team_size else discord.ButtonStyle.gray,
             disabled=(len(self.selected_pokemon_ids) != self.team_size or self.battle_started),
             custom_id="start_battle",
-            row=2
+            row=row_offset + 2
         )
         start_button.callback = self.start_battle_button
         self.add_item(start_button)
