@@ -3849,7 +3849,6 @@ class StatsView(View):
 @bot.tree.command(name='stats', description='View detailed stats for one of your Pokemon')
 async def stats(interaction: discord.Interaction):
     """View detailed stats for a specific Pokemon"""
-    # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
 
     if not interaction.guild:
