@@ -80,8 +80,8 @@ def get_pokemon_moves(pokemon_id: int, num_moves: int = 4, max_level: int = 100)
         available_moves = all_moves
 
     # Categorize moves
-    attacking_moves = [m for m in available_moves if m.get('damage_class') in ['physical', 'special'] and m.get('power', 0) > 0]
-    status_moves = [m for m in available_moves if m.get('damage_class') == 'status' or m.get('power', 0) == 0]
+    attacking_moves = [m for m in available_moves if m.get('damage_class') in ['physical', 'special'] and (m.get('power') or 0) > 0]
+    status_moves = [m for m in available_moves if m.get('damage_class') == 'status' or (m.get('power') or 0) == 0]
 
     # Separate status moves into buffs and debuffs (simplified)
     # Moves that lower opponent stats or inflict conditions = debuff
