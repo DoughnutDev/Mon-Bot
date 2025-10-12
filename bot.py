@@ -1175,7 +1175,7 @@ class GymBattleView(View):
         if self.already_defeated:
             embed.add_field(
                 name="⚠️ Already Defeated",
-                value="You've already beaten this gym! You can battle for fun but won't earn rewards.",
+                value="You've already beaten this gym! You can battle for fun and still earn XP, but won't earn badge/money/pack rewards again.",
                 inline=False
             )
         else:
@@ -2036,15 +2036,16 @@ class GymBattleView(View):
             color=discord.Color.gold()
         )
 
-        # Award species XP for victory
-        await db.add_species_xp(
-            self.user.id,
-            self.guild_id,
-            self.user_choice['pokemon_id'],
-            self.user_choice['pokemon_name'],
-            50,  # XP for gym victory
-            is_win=True
-        )
+        # Award species XP for victory to ALL Pokemon in team
+        for pokemon in self.user_team:
+            await db.add_species_xp(
+                self.user.id,
+                self.guild_id,
+                pokemon['pokemon_id'],
+                pokemon['pokemon_name'],
+                50,  # XP for gym victory
+                is_win=True
+            )
 
         if not self.already_defeated:
             # Award badge
@@ -2079,9 +2080,18 @@ class GymBattleView(View):
                 inline=False
             )
 
+        # Show XP gained for all team members
+        team_names = [p['pokemon_name'] for p in self.user_team]
+        if len(team_names) == 1:
+            xp_text = f"**{team_names[0]}** gained +50 XP!"
+        elif len(team_names) == 2:
+            xp_text = f"**{team_names[0]}** and **{team_names[1]}** each gained +50 XP!"
+        else:
+            xp_text = f"**{', '.join(team_names[:-1])}, and {team_names[-1]}** each gained +50 XP!"
+
         embed.add_field(
-            name=f"⭐ {self.user_choice['pokemon_name']} gained XP!",
-            value=f"+50 XP from defeating the gym!",
+            name=f"⭐ Team XP Gained!",
+            value=xp_text,
             inline=False
         )
 
@@ -2091,15 +2101,16 @@ class GymBattleView(View):
         """Handle gym defeat"""
         self.clear_items()
 
-        # Award some XP for participation
-        await db.add_species_xp(
-            self.user.id,
-            self.guild_id,
-            self.user_choice['pokemon_id'],
-            self.user_choice['pokemon_name'],
-            10,  # Small XP for defeat
-            is_win=False
-        )
+        # Award some XP for participation to ALL Pokemon in team
+        for pokemon in self.user_team:
+            await db.add_species_xp(
+                self.user.id,
+                self.guild_id,
+                pokemon['pokemon_id'],
+                pokemon['pokemon_name'],
+                10,  # Small XP for defeat
+                is_win=False
+            )
 
         embed = discord.Embed(
             title=f"💔 Defeat",
@@ -2113,9 +2124,18 @@ class GymBattleView(View):
             inline=False
         )
 
+        # Show XP gained for all team members
+        team_names = [p['pokemon_name'] for p in self.user_team]
+        if len(team_names) == 1:
+            xp_text = f"**{team_names[0]}** gained +10 XP for the battle experience!"
+        elif len(team_names) == 2:
+            xp_text = f"**{team_names[0]}** and **{team_names[1]}** each gained +10 XP for the battle experience!"
+        else:
+            xp_text = f"**{', '.join(team_names[:-1])}, and {team_names[-1]}** each gained +10 XP for the battle experience!"
+
         embed.add_field(
-            name=f"⭐ {self.user_choice['pokemon_name']} gained XP",
-            value=f"+10 XP for the battle experience!",
+            name=f"⭐ Team XP Gained",
+            value=xp_text,
             inline=False
         )
 
