@@ -48,16 +48,16 @@ A fully-featured Pokemon Discord bot with catching, battling, trading, quests, a
 ## Screenshots
 
 ### Pokemon Spawning
-![Pokemon Spawn](screenshots/pokemon_spawn.png)
+![Pokemon Appeared](screenshots/pokemon_appeared.png)
 
 ### Catching Pokemon
-![Pokemon Caught](screenshots/pokemon_caught.png)
+![Pokemon Captured](screenshots/pokemon_captured.png)
 
 ### Trainer Battles
 ![Trainer Battle](screenshots/trainer_battle.png)
 
 ### Daily Quests
-![Daily Quests](screenshots/daily_quests.png)
+![Daily Quests](screenshots/quest.png)
 
 ## Game Mechanics
 
