@@ -45,41 +45,19 @@ A fully-featured Pokemon Discord bot with catching, battling, trading, quests, a
 4. **Start catching!** Type `ball` when a Pokemon appears
 5. **Complete quests** and **battle trainers** to level up your Pokemon
 
-## Commands
+## Screenshots
 
-### 🎯 Catching & Collection
-- **`ball`** - Catch a spawned Pokemon (type in chat)
-- **`/pokedex [@user]`** - View your Pokedex or another user's collection
-- **`/count`** - See how many of each Pokemon you've caught
-- **`/stats [pokemon]`** - View detailed stats for your Pokemon
+### Pokemon Spawning
+![Pokemon Spawn](screenshots/pokemon_spawn.png)
 
-### ⚔️ Battles
-- **`/battle @user`** - Challenge another player to a PvP battle
-- **`/trainer`** - Battle trainers for XP (3 battles per hour cooldown)
-- **`/gym`** - Challenge Kanto Gym Leaders and earn badges
-- **`/badges`** - View your gym badge collection
+### Catching Pokemon
+![Pokemon Caught](screenshots/pokemon_caught.png)
 
-### 📦 Packs & Economy
-- **`/pack`** - Open Pokemon packs from your inventory
-- **`/shop`** - View available packs and items for purchase
-- **`/buy [item]`** - Purchase items from the shop
-- **`/balance`** - Check your Pokedollar balance
-- **`/sell`** - Sell duplicate Pokemon for Pokedollars
+### Trainer Battles
+![Trainer Battle](screenshots/trainer_battle.png)
 
-### 🔄 Trading & Social
-- **`/trade @user`** - Trade Pokemon with another player
-- **`/quests`** - View daily quests and progress (earn Pokedollars!)
-- **`/leaderboard`** - View server rankings
-- **`/wiki [pokemon]`** - View Pokemon lore and Pokedex entries
-
-### 🔧 Admin Commands
-- **`/setup #channel`** - Configure spawn channels (Administrator)
-- **`/clear`** - Clear all spawn channels (Administrator)
-- **`/spawn`** - Force spawn a Pokemon immediately (Administrator)
-- **`/adminhelp`** - View admin commands (Administrator)
-
-### ℹ️ Help
-- **`/help`** - Display all bot commands
+### Daily Quests
+![Daily Quests](screenshots/daily_quests.png)
 
 ## Game Mechanics
 
@@ -150,6 +128,15 @@ This bot is designed to be easily deployed on:
 - **VPS/Self-hosted**
 
 See the [Setup Guide](SETUP.md) for detailed deployment instructions.
+
+## Commands Reference
+
+For a full list of commands, type `/help` in Discord. Key commands include:
+- **Catching**: `ball`, `/pokedex`, `/stats`
+- **Battles**: `/battle`, `/trainer`, `/gym`
+- **Economy**: `/shop`, `/buy`, `/pack`, `/balance`, `/trade`, `/sell`
+- **Progress**: `/quests`, `/badges`, `/leaderboard`, `/wiki`
+- **Admin**: `/setup`, `/spawn`, `/clear`
 
 ## Contributing
 
