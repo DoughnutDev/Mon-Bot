@@ -4823,12 +4823,12 @@ async def trainer(interaction: discord.Interaction):
 @bot.tree.command(name='badges', description='View your gym badge collection!')
 async def badges(interaction: discord.Interaction):
     """Display user's gym badge collection"""
-    if not interaction.guild:
-        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
-        return
-
-    # Defer the response
+    # Defer immediately to prevent timeout
     await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
 
     # Get user's badges
     user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
