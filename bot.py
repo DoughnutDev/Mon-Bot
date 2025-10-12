@@ -180,16 +180,37 @@ async def fetch_pokemon_species(session, pokemon_identifier):
     return None
 
 
+def get_type_icon_url(type_name: str) -> str:
+    """Get the icon URL for a Pokemon type"""
+    # Map type names to their IDs for the sprite URLs
+    type_ids = {
+        'normal': 1, 'fighting': 2, 'flying': 3, 'poison': 4,
+        'ground': 5, 'rock': 6, 'bug': 7, 'ghost': 8,
+        'steel': 9, 'fire': 10, 'water': 11, 'grass': 12,
+        'electric': 13, 'psychic': 14, 'ice': 15, 'dragon': 16,
+        'dark': 17, 'fairy': 18
+    }
+
+    type_id = type_ids.get(type_name.lower(), 1)  # Default to normal if not found
+    return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/types/generation-viii/sword-shield/{type_id}.png"
+
+
 def create_spawn_embed(pokemon):
     """Create an embed for a spawned Pokemon"""
+    types_str = '/'.join([t.title() for t in pokemon['types']])
+
     embed = discord.Embed(
         title=f"A wild {pokemon['name']} appeared!",
-        description=f"Type `ball` to catch it!",
+        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n\nType `ball` to catch it!",
         color=discord.Color.green()
     )
 
     if pokemon['sprite']:
         embed.set_image(url=pokemon['sprite'])
+
+    # Add type icon as thumbnail
+    if pokemon['types']:
+        embed.set_thumbnail(url=get_type_icon_url(pokemon['types'][0]))
 
     embed.set_footer(text="First person to type 'ball' catches it!")
 
@@ -225,6 +246,10 @@ def create_catch_embed(pokemon, user, time_taken, is_shiny=False, currency_rewar
 
     if pokemon['sprite']:
         embed.set_thumbnail(url=pokemon['sprite'])
+
+    # Add type icon as author icon
+    if pokemon['types']:
+        embed.set_author(name=types_str, icon_url=get_type_icon_url(pokemon['types'][0]))
 
     return embed
 
