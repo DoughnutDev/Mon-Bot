@@ -219,37 +219,21 @@ def create_spawn_embed(pokemon):
 
 def create_catch_embed(pokemon, user, time_taken, is_shiny=False, currency_reward=0):
     """Create an embed for a successful catch"""
-    types_str = ', '.join(pokemon['types']).title()
-
-    # Format time - show minutes if over 60 seconds, otherwise just seconds
-    if time_taken >= 60:
-        minutes = int(time_taken // 60)
-        seconds = int(time_taken % 60)
-        time_str = f"{minutes}m {seconds}s" if seconds > 0 else f"{minutes}m"
-    else:
-        time_str = f"{int(time_taken)}s"
-
     # Custom pokeball emoji (animated)
     pokeball = "<a:pokemonball:1426316759866146896>"
-    shiny_text = "✨ **SHINY!** ✨ " if is_shiny else ""
+    shiny_text = "✨ **SHINY!** ✨\n" if is_shiny else ""
 
-    # Build description with currency reward
-    description = f"{shiny_text}**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n**Caught in:** {time_str}"
-    if currency_reward > 0:
-        description += f"\n💰 **Earned:** {currency_reward} Pokedollars"
+    # Minimal title with shiny indicator
+    title = f"{pokeball} {user.display_name} caught {shiny_text}{pokemon['name']}!"
 
     embed = discord.Embed(
-        title=f"{pokeball} {user.display_name} caught {pokemon['name']}!",
-        description=description,
+        title=title,
         color=discord.Color.gold() if not is_shiny else discord.Color.purple()
     )
 
+    # Use set_image for larger animated sprite display
     if pokemon['sprite']:
-        embed.set_thumbnail(url=pokemon['sprite'])
-
-    # Add type icon as author icon
-    if pokemon['types']:
-        embed.set_author(name=types_str, icon_url=get_type_icon_url(pokemon['types'][0]))
+        embed.set_image(url=pokemon['sprite'])
 
     return embed
 

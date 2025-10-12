@@ -49,12 +49,12 @@ def get_pokemon_stats(pokemon_id: int) -> Dict:
 
 
 def get_pokemon_sprite(pokemon_id: int, shiny: bool = False) -> Optional[str]:
-    """Get Pokemon sprite URL"""
-    pokemon = get_pokemon(pokemon_id)
-    if pokemon:
-        sprites = pokemon.get('sprites', {})
-        return sprites.get('front_shiny' if shiny else 'front_default')
-    return None
+    """Get animated Pokemon sprite URL (Gen V Black/White style)"""
+    base_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated"
+
+    if shiny:
+        return f"{base_url}/shiny/{pokemon_id}.gif"
+    return f"{base_url}/{pokemon_id}.gif"
 
 
 def get_pokemon_moves(pokemon_id: int, num_moves: int = 4, max_level: int = 100) -> List[Dict]:
