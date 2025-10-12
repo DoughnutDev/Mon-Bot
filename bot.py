@@ -2110,6 +2110,10 @@ class GymBattleView(View):
             color=discord.Color.gold()
         )
 
+        # Add badge icon as thumbnail
+        if 'badge_icon' in self.gym_data:
+            embed.set_thumbnail(url=self.gym_data['badge_icon'])
+
         # Award species XP for victory to ALL Pokemon in team
         for pokemon in self.user_team:
             await db.add_species_xp(
@@ -4833,25 +4837,39 @@ async def badges(interaction: discord.Interaction):
     # Create embed
     embed = discord.Embed(
         title=f"🏆 {interaction.user.display_name}'s Badge Case",
-        description=f"**Badges Collected: {badge_count}/8**",
+        description=f"**Badges Collected: {badge_count}/8**\n\nCollect all 8 Kanto Gym Badges to become a Pokemon Master!",
         color=discord.Color.gold() if badge_count == 8 else discord.Color.blue()
     )
 
-    # Add each gym's badge status
-    badges_display = ""
+    # Add each gym's badge status as fields with icons
     for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
         has_badge = gym_key in user_badges
 
         if has_badge:
-            badges_display += f"{gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}\n"
+            field_name = f"{gym_data['badge_emoji']} {gym_data['badge']}"
+            field_value = f"**{gym_data['name']}** - {gym_data['location']}\n✅ Earned!"
         else:
-            badges_display += f"⭕ ~~{gym_data['badge']}~~ - {gym_data['name']} (Not earned)\n"
+            field_name = f"⭕ {gym_data['badge']}"
+            field_value = f"**{gym_data['name']}** - {gym_data['location']}\n❌ Not earned"
 
-    embed.add_field(
-        name="Badge Collection",
-        value=badges_display,
-        inline=False
-    )
+        embed.add_field(
+            name=field_name,
+            value=field_value,
+            inline=True
+        )
+
+    # Set the first earned badge as thumbnail, or the first badge icon if none earned
+    first_badge = None
+    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+        if gym_key in user_badges:
+            first_badge = gym_data['badge_icon']
+            break
+
+    if not first_badge:
+        # Show first badge icon even if not earned
+        first_badge = gym_leaders.get_gym_leader('brock')['badge_icon']
+
+    embed.set_thumbnail(url=first_badge)
 
     if badge_count == 8:
         embed.add_field(

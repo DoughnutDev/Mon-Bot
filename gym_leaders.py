@@ -8,6 +8,7 @@ GYM_LEADERS = {
         'type': 'Rock',
         'badge': '🪨 Boulder Badge',
         'badge_emoji': '🪨',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/1.png',
         'location': 'Pewter City',
         'pokemon': [
             {
@@ -36,6 +37,7 @@ GYM_LEADERS = {
         'type': 'Water',
         'badge': '💧 Cascade Badge',
         'badge_emoji': '💧',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/2.png',
         'location': 'Cerulean City',
         'pokemon': [
             {
@@ -64,6 +66,7 @@ GYM_LEADERS = {
         'type': 'Electric',
         'badge': '⚡ Thunder Badge',
         'badge_emoji': '⚡',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/3.png',
         'location': 'Vermilion City',
         'pokemon': [
             {
@@ -98,6 +101,7 @@ GYM_LEADERS = {
         'type': 'Grass',
         'badge': '🌸 Rainbow Badge',
         'badge_emoji': '🌸',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/4.png',
         'location': 'Celadon City',
         'pokemon': [
             {
@@ -132,6 +136,7 @@ GYM_LEADERS = {
         'type': 'Poison',
         'badge': '🍃 Soul Badge',
         'badge_emoji': '🍃',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/5.png',
         'location': 'Fuchsia City',
         'pokemon': [
             {
@@ -172,6 +177,7 @@ GYM_LEADERS = {
         'type': 'Psychic',
         'badge': '🔮 Marsh Badge',
         'badge_emoji': '🔮',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/6.png',
         'location': 'Saffron City',
         'pokemon': [
             {
@@ -212,6 +218,7 @@ GYM_LEADERS = {
         'type': 'Fire',
         'badge': '🔥 Volcano Badge',
         'badge_emoji': '🔥',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/7.png',
         'location': 'Cinnabar Island',
         'pokemon': [
             {
@@ -252,6 +259,7 @@ GYM_LEADERS = {
         'type': 'Ground',
         'badge': '🌍 Earth Badge',
         'badge_emoji': '🌍',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/8.png',
         'location': 'Viridian City',
         'pokemon': [
             {
