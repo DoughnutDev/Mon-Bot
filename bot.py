@@ -3804,11 +3804,13 @@ class StatsView(View):
         # Create dropdown
         options = []
         for pokemon in page_pokemon:
-            label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
+            label = f"Lv.{pokemon['level']} | #{pokemon['pokemon_id']:03d} {shiny_indicator}{pokemon['pokemon_name']}"
             options.append(discord.SelectOption(
                 label=label,
                 value=str(pokemon['pokemon_id']),
-                emoji="📊"
+                emoji="✨" if is_shiny else "📊"
             ))
 
         pokemon_select = Select(
@@ -3885,6 +3887,10 @@ class StatsView(View):
 
         selected_pokemon_id = int(interaction.data['values'][0])
 
+        # Check if this Pokemon is shiny (from the pokemon_list)
+        selected_pokemon = next((p for p in self.pokemon_list if p['pokemon_id'] == selected_pokemon_id), None)
+        is_shiny = selected_pokemon.get('is_shiny', False) if selected_pokemon else False
+
         # Get detailed stats from database
         species_stats = await db.get_pokemon_species_stats(self.user_id, self.guild_id, selected_pokemon_id)
 
@@ -3911,7 +3917,7 @@ class StatsView(View):
         base_stats = poke_data.get_pokemon_stats(pokemon_id)
         battle_stats = pkmn.calculate_battle_stats(base_stats, level)
         types = poke_data.get_pokemon_types(pokemon_id)
-        sprite = poke_data.get_pokemon_sprite(pokemon_id)
+        sprite = poke_data.get_pokemon_sprite(pokemon_id, shiny=is_shiny)
 
         # Calculate XP progress
         current_level_xp = experience % 100
@@ -3922,11 +3928,13 @@ class StatsView(View):
         total_battles = battles_won + battles_lost
         win_rate = (battles_won / total_battles * 100) if total_battles > 0 else 0
 
-        # Create embed
+        # Create embed with shiny indicator
+        shiny_indicator = "✨ " if is_shiny else ""
+        shiny_note = "\n✨ **This is a Shiny Pokemon!** ✨" if is_shiny else ""
         embed = discord.Embed(
-            title=f"#{pokemon_id:03d} {pokemon_name.title()}",
-            description=f"**Level {level}** | {' / '.join([t.title() for t in types])}",
-            color=discord.Color.blue()
+            title=f"#{pokemon_id:03d} {shiny_indicator}{pokemon_name.title()}",
+            description=f"**Level {level}** | {' / '.join([t.title() for t in types])}{shiny_note}",
+            color=discord.Color.purple() if is_shiny else discord.Color.blue()
         )
 
         if sprite:
