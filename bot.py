@@ -4464,6 +4464,9 @@ class TrainerBattlePokemonSelect(View):
         # Pick a random Pokemon for the trainer
         opponent_pokemon_id = random.randint(1, 151)  # Gen 1 Pokemon
 
+        # Generate a random trainer with quote
+        trainer = trainer_data.get_random_trainer()
+
         # Create battle view
         battle_view = SimpleTrainerBattleView(
             self.user,
@@ -4471,7 +4474,8 @@ class TrainerBattlePokemonSelect(View):
             selected_pokemon,
             opponent_pokemon_id,
             opponent_level,
-            self.battles_remaining - 1
+            self.battles_remaining - 1,
+            trainer
         )
 
         # Disable selection
@@ -4485,7 +4489,7 @@ class TrainerBattlePokemonSelect(View):
 class SimpleTrainerBattleView(View):
     """View for simple trainer battles (player vs NPC trainer)"""
 
-    def __init__(self, user: discord.Member, guild_id: int, user_pokemon: dict, opponent_pokemon_id: int, opponent_level: int, battles_remaining: int):
+    def __init__(self, user: discord.Member, guild_id: int, user_pokemon: dict, opponent_pokemon_id: int, opponent_level: int, battles_remaining: int, trainer: dict = None):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
@@ -4493,6 +4497,7 @@ class SimpleTrainerBattleView(View):
         self.opponent_pokemon_id = opponent_pokemon_id
         self.opponent_level = opponent_level
         self.battles_remaining = battles_remaining
+        self.trainer = trainer if trainer else {'name': 'Wild Trainer', 'class': 'Trainer', 'sprite': '⚔️', 'quote': 'Let\'s battle!'}
 
         # Battle state
         self.turn_count = 0
@@ -4531,8 +4536,12 @@ class SimpleTrainerBattleView(View):
         # Create move buttons
         self.create_move_buttons()
 
-        # Initial battle log
-        self.battle_log = [f"⚔️ **Wild Trainer appeared with {self.opponent_name}!**"]
+        # Initial battle log with trainer quote
+        trainer_quote = self.trainer.get('quote', "Let's battle!")
+        self.battle_log = [
+            f"⚔️ **{self.trainer['sprite']} {self.trainer['name']} challenges you!**",
+            f"💬 *\"{trainer_quote}\"*"
+        ]
 
         # Send battle embed
         embed = self.create_battle_embed()
@@ -4711,16 +4720,17 @@ class SimpleTrainerBattleView(View):
         """Create battle embed"""
         embed = discord.Embed(
             title="⚔️ Trainer Battle",
-            description=f"**{self.user.display_name}** vs **Wild Trainer**",
+            description=f"**{self.user.display_name}** vs **{self.trainer['sprite']} {self.trainer['name']}**",
             color=discord.Color.orange()
         )
 
         # User's Pokemon
         user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
         user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
+        user_shiny = "✨ " if self.user_pokemon.get('is_shiny', False) else ""
 
         embed.add_field(
-            name=f"Your {self.user_pokemon['pokemon_name']} (Lv.{self.user_pokemon.get('level', 1)})",
+            name=f"Your {user_shiny}{self.user_pokemon['pokemon_name']} (Lv.{self.user_pokemon.get('level', 1)})",
             value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
             inline=True
         )
@@ -4730,7 +4740,7 @@ class SimpleTrainerBattleView(View):
         opponent_hp_bar = pkmn.create_hp_bar(opponent_hp_percent)
 
         embed.add_field(
-            name=f"Trainer's {self.opponent_name} (Lv.{self.opponent_level})",
+            name=f"{self.trainer['sprite']} {self.opponent_name} (Lv.{self.opponent_level})",
             value=f"{opponent_hp_bar}\nHP: {self.opponent_current_hp}/{self.opponent_max_hp}",
             inline=True
         )
@@ -4760,7 +4770,7 @@ class SimpleTrainerBattleView(View):
         # Create victory embed
         embed = discord.Embed(
             title="🎉 Victory!",
-            description=f"You defeated the trainer!",
+            description=f"You defeated **{self.trainer['sprite']} {self.trainer['name']}**!",
             color=discord.Color.green()
         )
 
@@ -4799,7 +4809,7 @@ class SimpleTrainerBattleView(View):
         # Create defeat embed
         embed = discord.Embed(
             title="💔 Defeated...",
-            description=f"You were defeated by the trainer!",
+            description=f"You were defeated by **{self.trainer['sprite']} {self.trainer['name']}**!",
             color=discord.Color.red()
         )
 
