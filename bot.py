@@ -319,6 +319,10 @@ async def on_message(message):
             user_id = message.author.id
             guild_id = message.guild.id if message.guild else 0
 
+            # Reset spawn timer for this guild to prevent immediate respawn
+            # This prevents the issue where a Pokemon sitting for 10+ minutes triggers immediate spawn after catch
+            last_guild_spawn[guild_id] = catch_time
+
             # 15% chance for a trainer to appear and claim the Pokemon
             if random.random() < 0.15:
                 # Get a random trainer
