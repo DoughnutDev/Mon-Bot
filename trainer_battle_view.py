@@ -387,6 +387,12 @@ class TrainerBattleView(View):
             crit_text = " **Critical hit!**" if is_crit else ""
             self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
 
+            # Check for self-destruct moves
+            move_name_lower = move['name'].lower()
+            if 'self-destruct' in move_name_lower or 'selfdestruct' in move_name_lower or move_name_lower == 'explosion':
+                self.user_current_hp = 0
+                self.battle_log.append(f"💥 **{self.user_choice['pokemon_name']}** fainted from the recoil!")
+
             if self.trainer_current_hp <= 0:
                 self.battle_log.append(f"**{self.trainer_current_pokemon['pokemon_name']}** fainted!")
         else:
@@ -411,6 +417,12 @@ class TrainerBattleView(View):
             self.user_current_hp = max(0, self.user_current_hp - damage)
             crit_text = " **Critical hit!**" if is_crit else ""
             self.battle_log.append(f"**{self.trainer_current_pokemon['pokemon_name']}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
+
+            # Check for self-destruct moves
+            move_name_lower = move['name'].lower()
+            if 'self-destruct' in move_name_lower or 'selfdestruct' in move_name_lower or move_name_lower == 'explosion':
+                self.trainer_current_hp = 0
+                self.battle_log.append(f"💥 **{self.trainer_current_pokemon['pokemon_name']}** fainted from the recoil!")
 
             if self.user_current_hp <= 0:
                 self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
