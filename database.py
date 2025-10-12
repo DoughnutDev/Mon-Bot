@@ -247,6 +247,17 @@ async def setup_database():
             await _initialize_shop_items(conn)
             print("Shop items initialized", flush=True)
 
+            # Migration: Add is_shiny column if it doesn't exist
+            print("Checking for database migrations...", flush=True)
+            try:
+                await conn.execute('''
+                    ALTER TABLE catches
+                    ADD COLUMN IF NOT EXISTS is_shiny BOOLEAN DEFAULT FALSE
+                ''')
+                print("Migration complete: is_shiny column added", flush=True)
+            except Exception as e:
+                print(f"Migration note: {e}", flush=True)
+
             print("Database tables created successfully", flush=True)
 
     except Exception as e:

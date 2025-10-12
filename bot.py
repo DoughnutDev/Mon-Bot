@@ -348,8 +348,8 @@ async def on_message(message):
             # This prevents the issue where a Pokemon sitting for 10+ minutes triggers immediate spawn after catch
             last_guild_spawn[guild_id] = catch_time
 
-            # Roll for shiny (TESTING: 50% chance - revert to 1/512 for production)
-            is_shiny = random.random() < 0.5
+            # Roll for shiny (1/512 = 0.195% chance)
+            is_shiny = random.random() < (1/512)
 
             # Update sprite to shiny version if shiny
             if is_shiny:
