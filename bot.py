@@ -1349,6 +1349,7 @@ class GymBattleView(View):
                 # Check if switched Pokemon fainted
                 if self.user_current_hp <= 0:
                     self.user_current_hp = 0
+                    self.user_team[self.user_pokemon_index]['current_hp'] = 0
                     self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
                     # Check if user has more Pokemon
@@ -1503,6 +1504,7 @@ class GymBattleView(View):
 
                         if gym_hit:
                             self.user_current_hp -= gym_damage
+                            self.user_team[self.user_pokemon_index]['current_hp'] = self.user_current_hp
                             crit_text = " **Critical hit!**" if gym_crit else ""
                             self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
                         else:
@@ -1511,6 +1513,7 @@ class GymBattleView(View):
                 # Check if user Pokemon fainted
                 if self.user_current_hp <= 0:
                     self.user_current_hp = 0
+                    self.user_team[self.user_pokemon_index]['current_hp'] = 0
                     self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
                     # Check if user has more Pokemon
@@ -1565,6 +1568,7 @@ class GymBattleView(View):
 
                     if gym_hit:
                         self.user_current_hp -= gym_damage
+                        self.user_team[self.user_pokemon_index]['current_hp'] = self.user_current_hp
                         crit_text = " **Critical hit!**" if gym_crit else ""
                         self.battle_log.append(f"**{self.gym_current_pokemon['pokemon_name']}** used **{gym_move['name']}**! Dealt {gym_damage} damage!{crit_text}")
                     else:
@@ -1573,6 +1577,7 @@ class GymBattleView(View):
             # Check if user Pokemon fainted
             if self.user_current_hp <= 0:
                 self.user_current_hp = 0
+                self.user_team[self.user_pokemon_index]['current_hp'] = 0
                 self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
                 # Check if user has more Pokemon
@@ -1655,6 +1660,7 @@ class GymBattleView(View):
         # Check if either Pokemon fainted from status damage
         if self.user_current_hp <= 0:
             self.user_current_hp = 0
+            self.user_team[self.user_pokemon_index]['current_hp'] = 0
             self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
             # Check if user has more Pokemon
@@ -1884,6 +1890,7 @@ class GymBattleView(View):
                 damage = max(1, damage)
                 self.user_current_hp -= damage
                 self.user_current_hp = max(0, self.user_current_hp)
+                self.user_team[self.user_pokemon_index]['current_hp'] = self.user_current_hp
                 messages.append(f"**{self.user_choice['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
 
             elif self.user_status == 'badly_poison':
@@ -1893,6 +1900,7 @@ class GymBattleView(View):
                 damage = max(1, damage)
                 self.user_current_hp -= damage
                 self.user_current_hp = max(0, self.user_current_hp)
+                self.user_team[self.user_pokemon_index]['current_hp'] = self.user_current_hp
                 messages.append(f"**{self.user_choice['pokemon_name']}** took {damage} damage from {status_data['name']}! {status_data['emoji']}")
 
             elif self.user_status == 'sleep':
