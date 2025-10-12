@@ -472,7 +472,7 @@ class TrainerBattleView(View):
         # Type effectiveness
         move_type = move.get('type', 'normal')
         defender_types = defender['types']
-        effectiveness = pkmn.get_type_effectiveness(move_type, defender_types)
+        effectiveness = pkmn.get_type_effectiveness([move_type], defender_types)
         damage *= effectiveness
 
         # STAB (Same Type Attack Bonus)
