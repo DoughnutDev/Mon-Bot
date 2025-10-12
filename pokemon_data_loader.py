@@ -49,8 +49,8 @@ def get_pokemon_stats(pokemon_id: int) -> Dict:
 
 
 def get_pokemon_sprite(pokemon_id: int, shiny: bool = False) -> Optional[str]:
-    """Get animated Pokemon sprite URL (Gen V Black/White style)"""
-    base_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated"
+    """Get animated Pokemon sprite URL (Pokemon Showdown style - larger and smoother)"""
+    base_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown"
 
     if shiny:
         return f"{base_url}/shiny/{pokemon_id}.gif"
