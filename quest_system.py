@@ -159,6 +159,15 @@ QUEST_TYPES = {
         ]
     },
 
+    # /trainer command battles
+    'win_trainer_battles': {
+        'variants': [
+            {'target': 1, 'reward': 60, 'description': 'Win 1 trainer battle (/trainer)'},
+            {'target': 2, 'reward': 110, 'description': 'Win 2 trainer battles (/trainer)'},
+            {'target': 3, 'reward': 160, 'description': 'Win 3 trainer battles (/trainer)'},
+        ]
+    },
+
     # Gym battles
     'challenge_gyms': {
         'variants': [

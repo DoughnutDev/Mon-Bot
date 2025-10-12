@@ -225,6 +225,17 @@ async def setup_database():
                 )
             ''')
 
+            # Trainer battle cooldowns - tracks /trainer command usage
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS trainer_cooldowns (
+                    user_id BIGINT NOT NULL,
+                    guild_id BIGINT NOT NULL,
+                    battles_used INTEGER DEFAULT 0,
+                    cooldown_reset TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (user_id, guild_id)
+                )
+            ''')
+
             # Initialize Season 1 rewards if not already present
             print("Initializing Season 1 rewards...", flush=True)
             await _initialize_season1_rewards(conn)
@@ -1443,3 +1454,88 @@ async def get_pokemon_species_stats(user_id: int, guild_id: int, pokemon_id: int
         if stats:
             return dict(stats)
         return None
+
+
+# Trainer battle cooldown functions
+
+async def check_trainer_cooldown(user_id: int, guild_id: int) -> Dict:
+    """Check trainer battle cooldown status. Returns battles_remaining and seconds_until_reset."""
+    if not pool:
+        return {'battles_remaining': 0, 'seconds_until_reset': 0}
+
+    from datetime import datetime, timedelta
+
+    async with pool.acquire() as conn:
+        # Get or create cooldown entry
+        cooldown = await conn.fetchrow('''
+            INSERT INTO trainer_cooldowns (user_id, guild_id, battles_used, cooldown_reset)
+            VALUES ($1, $2, 0, NOW())
+            ON CONFLICT (user_id, guild_id)
+            DO UPDATE SET user_id = trainer_cooldowns.user_id
+            RETURNING battles_used, cooldown_reset
+        ''', user_id, guild_id)
+
+        if not cooldown:
+            return {'battles_remaining': 3, 'seconds_until_reset': 0}
+
+        now = datetime.now()
+        reset_time = cooldown['cooldown_reset']
+
+        # Check if an hour has passed since last reset
+        if now >= reset_time + timedelta(hours=1):
+            # Reset cooldown
+            await conn.execute('''
+                UPDATE trainer_cooldowns
+                SET battles_used = 0, cooldown_reset = $3
+                WHERE user_id = $1 AND guild_id = $2
+            ''', user_id, guild_id, now)
+
+            return {'battles_remaining': 3, 'seconds_until_reset': 0}
+
+        # Calculate remaining battles and time until reset
+        battles_used = cooldown['battles_used']
+        battles_remaining = max(0, 3 - battles_used)
+        time_until_reset = (reset_time + timedelta(hours=1)) - now
+        seconds_until_reset = int(time_until_reset.total_seconds())
+
+        return {
+            'battles_remaining': battles_remaining,
+            'seconds_until_reset': max(0, seconds_until_reset)
+        }
+
+
+async def use_trainer_battle(user_id: int, guild_id: int) -> bool:
+    """Use one trainer battle. Returns True if successful, False if no battles remaining."""
+    if not pool:
+        return False
+
+    async with pool.acquire() as conn:
+        # Check if user has battles remaining
+        cooldown = await check_trainer_cooldown(user_id, guild_id)
+
+        if cooldown['battles_remaining'] <= 0:
+            return False
+
+        # Increment battles_used
+        await conn.execute('''
+            UPDATE trainer_cooldowns
+            SET battles_used = battles_used + 1
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id)
+
+        return True
+
+
+async def reset_trainer_cooldown(user_id: int, guild_id: int):
+    """Manually reset trainer cooldown (for admin/testing purposes)."""
+    if not pool:
+        return
+
+    from datetime import datetime
+
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            UPDATE trainer_cooldowns
+            SET battles_used = 0, cooldown_reset = $3
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id, datetime.now())

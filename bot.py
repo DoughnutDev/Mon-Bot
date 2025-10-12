@@ -4228,6 +4228,534 @@ async def battle(interaction: discord.Interaction, user: discord.Member):
     await interaction.followup.send(embed=embed, view=view)
 
 
+# Simple Trainer Battle Views for /trainer command
+
+class TrainerBattlePokemonSelect(View):
+    """View for selecting which Pokemon to use for trainer battle"""
+
+    def __init__(self, user: discord.Member, guild_id: int, pokemon_list: list, battles_remaining: int):
+        super().__init__(timeout=180)
+        self.user = user
+        self.guild_id = guild_id
+        self.pokemon_list = pokemon_list  # Already has levels
+        self.battles_remaining = battles_remaining
+
+        # Pagination
+        self.current_page = 0
+        self.pokemon_per_page = 25
+        self.total_pages = (len(pokemon_list) + self.pokemon_per_page - 1) // self.pokemon_per_page
+
+        self.update_select()
+
+    def update_select(self):
+        """Update the select dropdown for current page"""
+        self.clear_items()
+
+        # Calculate page range
+        start_idx = self.current_page * self.pokemon_per_page
+        end_idx = min(start_idx + self.pokemon_per_page, len(self.pokemon_list))
+        page_pokemon = self.pokemon_list[start_idx:end_idx]
+
+        # Create select
+        select = Select(
+            placeholder="Choose your Pokemon...",
+            min_values=1,
+            max_values=1
+        )
+
+        for pokemon in page_pokemon:
+            level = pokemon.get('level', 1)
+            types = poke_data.get_pokemon_types(pokemon['pokemon_id'])
+            types_str = '/'.join([t.title() for t in types]) if types else 'Unknown'
+
+            select.add_option(
+                label=f"{pokemon['pokemon_name']} (Lv.{level})",
+                value=str(pokemon['pokemon_id']),
+                description=f"#{pokemon['pokemon_id']} - {types_str}"
+            )
+
+        select.callback = self.pokemon_selected
+        self.add_item(select)
+
+        # Add pagination buttons if needed
+        if self.total_pages > 1:
+            prev_button = Button(
+                label="◀ Previous",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.current_page == 0)
+            )
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+
+            next_button = Button(
+                label="Next ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.current_page >= self.total_pages - 1)
+            )
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Go to previous page"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your trainer battle!", ephemeral=True)
+            return
+
+        self.current_page = max(0, self.current_page - 1)
+        self.update_select()
+        await interaction.response.edit_message(view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Go to next page"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your trainer battle!", ephemeral=True)
+            return
+
+        self.current_page = min(self.total_pages - 1, self.current_page + 1)
+        self.update_select()
+        await interaction.response.edit_message(view=self)
+
+    async def pokemon_selected(self, interaction: discord.Interaction):
+        """Handle Pokemon selection and start battle"""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("❌ This isn't your trainer battle!", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        # Get selected Pokemon ID
+        selected_pokemon_id = int(interaction.message.components[0].children[0].values[0])
+        selected_pokemon = next((p for p in self.pokemon_list if p['pokemon_id'] == selected_pokemon_id), None)
+
+        if not selected_pokemon:
+            await interaction.followup.send("❌ Pokemon not found!", ephemeral=True)
+            return
+
+        # Use a trainer battle
+        success = await db.use_trainer_battle(self.user.id, self.guild_id)
+        if not success:
+            await interaction.followup.send("❌ No battles remaining!", ephemeral=True)
+            return
+
+        # Generate opponent trainer Pokemon with similar level (±2)
+        user_level = selected_pokemon.get('level', 1)
+        min_level = max(1, user_level - 2)
+        max_level = user_level + 2
+        opponent_level = random.randint(min_level, max_level)
+
+        # Pick a random Pokemon for the trainer
+        opponent_pokemon_id = random.randint(1, 151)  # Gen 1 Pokemon
+
+        # Create battle view
+        battle_view = SimpleTrainerBattleView(
+            self.user,
+            self.guild_id,
+            selected_pokemon,
+            opponent_pokemon_id,
+            opponent_level,
+            self.battles_remaining - 1
+        )
+
+        # Disable selection
+        self.clear_items()
+        await interaction.message.edit(view=self)
+
+        # Start battle
+        await battle_view.start_battle(interaction)
+
+
+class SimpleTrainerBattleView(View):
+    """View for simple trainer battles (player vs NPC trainer)"""
+
+    def __init__(self, user: discord.Member, guild_id: int, user_pokemon: dict, opponent_pokemon_id: int, opponent_level: int, battles_remaining: int):
+        super().__init__(timeout=600)
+        self.user = user
+        self.guild_id = guild_id
+        self.user_pokemon = user_pokemon
+        self.opponent_pokemon_id = opponent_pokemon_id
+        self.opponent_level = opponent_level
+        self.battles_remaining = battles_remaining
+
+        # Battle state
+        self.turn_count = 0
+        self.battle_log = []
+
+        # Will be initialized in start_battle
+        self.user_current_hp = 0
+        self.user_max_hp = 0
+        self.opponent_current_hp = 0
+        self.opponent_max_hp = 0
+
+        self.user_stats = None
+        self.opponent_stats = None
+        self.user_moves = []
+        self.opponent_moves = []
+        self.opponent_name = ""
+
+    async def start_battle(self, interaction: discord.Interaction):
+        """Initialize battle stats and start"""
+        # Get user Pokemon stats
+        user_level = self.user_pokemon.get('level', 1)
+        user_base_stats = poke_data.get_pokemon_stats(self.user_pokemon['pokemon_id'])
+        self.user_stats = pkmn.calculate_battle_stats(user_base_stats, user_level)
+        self.user_max_hp = self.user_stats['hp']
+        self.user_current_hp = self.user_max_hp
+        self.user_moves = poke_data.get_pokemon_moves(self.user_pokemon['pokemon_id'], num_moves=4, max_level=user_level)
+
+        # Get opponent Pokemon stats
+        self.opponent_name = poke_data.get_pokemon_name(self.opponent_pokemon_id)
+        opponent_base_stats = poke_data.get_pokemon_stats(self.opponent_pokemon_id)
+        self.opponent_stats = pkmn.calculate_battle_stats(opponent_base_stats, self.opponent_level)
+        self.opponent_max_hp = self.opponent_stats['hp']
+        self.opponent_current_hp = self.opponent_max_hp
+        self.opponent_moves = poke_data.get_pokemon_moves(self.opponent_pokemon_id, num_moves=4, max_level=self.opponent_level)
+
+        # Create move buttons
+        self.create_move_buttons()
+
+        # Initial battle log
+        self.battle_log = [f"⚔️ **Wild Trainer appeared with {self.opponent_name}!**"]
+
+        # Send battle embed
+        embed = self.create_battle_embed()
+        await interaction.followup.send(embed=embed, view=self)
+
+    def create_move_buttons(self):
+        """Create move buttons"""
+        self.clear_items()
+
+        for i, move in enumerate(self.user_moves):
+            if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+                button_style = discord.ButtonStyle.secondary
+            elif move['damage_class'] == 'physical':
+                button_style = discord.ButtonStyle.danger
+            else:
+                button_style = discord.ButtonStyle.primary
+
+            button = Button(
+                label=f"{move['name']} ({move['type']})",
+                style=button_style,
+                row=i // 2
+            )
+            button.callback = self.create_move_callback(i)
+            self.add_item(button)
+
+    def create_move_callback(self, move_index: int):
+        """Create callback for move button"""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("❌ This isn't your battle!", ephemeral=True)
+                return
+
+            await interaction.response.defer()
+            await self.execute_turn(move_index, interaction)
+
+        return callback
+
+    async def execute_turn(self, user_move_index: int, interaction: discord.Interaction):
+        """Execute a battle turn"""
+        self.turn_count += 1
+        self.battle_log = [f"**Turn {self.turn_count}:**"]
+
+        user_move = self.user_moves[user_move_index]
+        opponent_move = random.choice(self.opponent_moves)
+
+        # Determine turn order by speed
+        user_goes_first = self.user_stats['speed'] >= self.opponent_stats['speed']
+
+        # Execute moves
+        if user_goes_first:
+            await self.user_attacks(user_move)
+            if self.opponent_current_hp > 0:
+                await self.opponent_attacks(opponent_move)
+        else:
+            await self.opponent_attacks(opponent_move)
+            if self.user_current_hp > 0:
+                await self.user_attacks(user_move)
+
+        # Check battle end
+        if self.user_current_hp <= 0:
+            await self.handle_defeat(interaction)
+            return
+
+        if self.opponent_current_hp <= 0:
+            await self.handle_victory(interaction)
+            return
+
+        # Update battle UI
+        self.create_move_buttons()
+        embed = self.create_battle_embed()
+        await interaction.message.edit(embed=embed, view=self)
+
+    async def user_attacks(self, move: dict):
+        """User's Pokemon attacks"""
+        damage, is_crit, hit = self.calculate_damage(
+            move,
+            self.user_pokemon['pokemon_id'],
+            self.opponent_pokemon_id,
+            self.user_stats,
+            self.opponent_stats
+        )
+
+        if hit:
+            self.opponent_current_hp = max(0, self.opponent_current_hp - damage)
+            crit_text = " **Critical hit!**" if is_crit else ""
+            self.battle_log.append(f"**{self.user_pokemon['pokemon_name']}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
+
+            if self.opponent_current_hp <= 0:
+                self.battle_log.append(f"**{self.opponent_name}** fainted!")
+        else:
+            self.battle_log.append(f"**{self.user_pokemon['pokemon_name']}** used **{move['name']}**... but it missed!")
+
+    async def opponent_attacks(self, move: dict):
+        """Opponent's Pokemon attacks"""
+        damage, is_crit, hit = self.calculate_damage(
+            move,
+            self.opponent_pokemon_id,
+            self.user_pokemon['pokemon_id'],
+            self.opponent_stats,
+            self.user_stats
+        )
+
+        if hit:
+            self.user_current_hp = max(0, self.user_current_hp - damage)
+            crit_text = " **Critical hit!**" if is_crit else ""
+            self.battle_log.append(f"**{self.opponent_name}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
+
+            if self.user_current_hp <= 0:
+                self.battle_log.append(f"**{self.user_pokemon['pokemon_name']}** fainted!")
+        else:
+            self.battle_log.append(f"**{self.opponent_name}** used **{move['name']}**... but it missed!")
+
+    def calculate_damage(self, move: dict, attacker_id: int, defender_id: int, attacker_stats: dict, defender_stats: dict) -> tuple:
+        """Calculate damage. Returns (damage, is_crit, hit)"""
+        # Check accuracy
+        accuracy = move.get('accuracy', 100)
+        if random.randint(1, 100) > accuracy:
+            return 0, False, False
+
+        # Status moves do no damage
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            return 0, False, True
+
+        # Critical hit
+        is_crit = random.random() < 0.0625
+
+        # Get attacker and defender types
+        attacker_types = poke_data.get_pokemon_types(attacker_id)
+        defender_types = poke_data.get_pokemon_types(defender_id)
+
+        # Calculate base damage
+        power = move.get('power', 50)
+        attacker_level = self.user_pokemon.get('level', 1) if attacker_id == self.user_pokemon['pokemon_id'] else self.opponent_level
+
+        if move['damage_class'] == 'physical':
+            attack = attacker_stats['attack']
+            defense = defender_stats['defense']
+        else:
+            attack = attacker_stats.get('special-attack', attacker_stats.get('special_attack', 50))
+            defense = defender_stats.get('special-defense', defender_stats.get('special_defense', 50))
+
+        # Damage formula
+        damage = ((2 * attacker_level / 5 + 2) * power * attack / defense / 50) + 2
+
+        # Critical hit
+        if is_crit:
+            damage *= 1.5
+
+        # Random factor
+        damage *= random.uniform(0.85, 1.0)
+
+        # Type effectiveness
+        move_type = move.get('type', 'normal')
+        effectiveness = pkmn.get_type_effectiveness([move_type], defender_types)
+        damage *= effectiveness
+
+        # STAB
+        if move_type in attacker_types:
+            damage *= 1.5
+
+        return int(max(1, damage)), is_crit, True
+
+    def create_battle_embed(self):
+        """Create battle embed"""
+        embed = discord.Embed(
+            title="⚔️ Trainer Battle",
+            description=f"**{self.user.display_name}** vs **Wild Trainer**",
+            color=discord.Color.orange()
+        )
+
+        # User's Pokemon
+        user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
+        user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
+
+        embed.add_field(
+            name=f"Your {self.user_pokemon['pokemon_name']} (Lv.{self.user_pokemon.get('level', 1)})",
+            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
+            inline=True
+        )
+
+        # Opponent's Pokemon
+        opponent_hp_percent = (self.opponent_current_hp / self.opponent_max_hp) * 100
+        opponent_hp_bar = pkmn.create_hp_bar(opponent_hp_percent)
+
+        embed.add_field(
+            name=f"Trainer's {self.opponent_name} (Lv.{self.opponent_level})",
+            value=f"{opponent_hp_bar}\nHP: {self.opponent_current_hp}/{self.opponent_max_hp}",
+            inline=True
+        )
+
+        # Battle log
+        log_text = "\n".join(self.battle_log[-5:])
+        if log_text:
+            embed.add_field(name="📝 Battle Log", value=log_text, inline=False)
+
+        embed.set_footer(text=f"Turn {self.turn_count} • {self.battles_remaining} battles remaining this hour")
+
+        return embed
+
+    async def handle_victory(self, interaction: discord.Interaction):
+        """Handle victory"""
+        # Award XP
+        xp_gained = 50
+        xp_result = await db.add_species_xp(
+            self.user.id, self.guild_id,
+            self.user_pokemon['pokemon_id'], self.user_pokemon['pokemon_name'],
+            xp_gained, is_win=True
+        )
+
+        # Update quest progress
+        quest_result = await db.update_quest_progress(self.user.id, self.guild_id, 'win_trainer_battles')
+
+        # Create victory embed
+        embed = discord.Embed(
+            title="🎉 Victory!",
+            description=f"You defeated the trainer!",
+            color=discord.Color.green()
+        )
+
+        reward_text = f"• **{self.user_pokemon['pokemon_name']}** gained **{xp_gained} XP**!"
+
+        if xp_result and xp_result.get('leveled_up'):
+            reward_text += f"\n• **{self.user_pokemon['pokemon_name']}** leveled up to **Lv.{xp_result['new_level']}**!"
+
+        embed.add_field(name="🏆 Rewards", value=reward_text, inline=False)
+
+        # Quest completion notification
+        if quest_result and quest_result.get('completed_quests'):
+            quest_currency = quest_result.get('total_currency', 0)
+            quest_count = len(quest_result['completed_quests'])
+            embed.add_field(
+                name="✅ Quest Complete!",
+                value=f"Completed {quest_count} quest(s) and earned **₽{quest_currency}**!",
+                inline=False
+            )
+
+        embed.set_footer(text=f"{self.battles_remaining} battles remaining this hour")
+
+        self.clear_items()
+        await interaction.message.edit(embed=embed, view=self)
+
+    async def handle_defeat(self, interaction: discord.Interaction):
+        """Handle defeat"""
+        # Award small XP even for loss
+        xp_gained = 10
+        await db.add_species_xp(
+            self.user.id, self.guild_id,
+            self.user_pokemon['pokemon_id'], self.user_pokemon['pokemon_name'],
+            xp_gained, is_win=False
+        )
+
+        # Create defeat embed
+        embed = discord.Embed(
+            title="💔 Defeated...",
+            description=f"You were defeated by the trainer!",
+            color=discord.Color.red()
+        )
+
+        embed.add_field(
+            name="Consolation Prize",
+            value=f"**{self.user_pokemon['pokemon_name']}** gained **{xp_gained} XP** for participating!",
+            inline=False
+        )
+
+        embed.set_footer(text=f"{self.battles_remaining} battles remaining this hour")
+
+        self.clear_items()
+        await interaction.message.edit(embed=embed, view=self)
+
+
+@bot.tree.command(name='trainer', description='Battle a trainer with one of your Pokemon for XP!')
+async def trainer(interaction: discord.Interaction):
+    """Initiate a trainer battle to gain XP for your Pokemon"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Check cooldown
+    cooldown = await db.check_trainer_cooldown(interaction.user.id, interaction.guild.id)
+
+    if cooldown['battles_remaining'] <= 0:
+        # Format time remaining
+        seconds = cooldown['seconds_until_reset']
+        minutes = seconds // 60
+        seconds_remainder = seconds % 60
+
+        time_str = f"{minutes}m {seconds_remainder}s" if minutes > 0 else f"{seconds_remainder}s"
+
+        embed = discord.Embed(
+            title="⏰ Trainer Battle Cooldown",
+            description=f"You've used all 3 trainer battles this hour!\n\nNext reset in: **{time_str}**",
+            color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Defer the response
+    await interaction.response.defer()
+
+    # Get user's Pokemon
+    user_pokemon = await db.get_user_pokemon_for_trade(interaction.user.id, interaction.guild.id)
+
+    if not user_pokemon:
+        await interaction.followup.send("❌ You don't have any Pokemon to battle with!")
+        return
+
+    # Get unique Pokemon species with their highest catch_id
+    seen_species = {}
+    for pokemon in user_pokemon:
+        species_key = (pokemon['pokemon_id'], pokemon['pokemon_name'])
+        if species_key not in seen_species:
+            seen_species[species_key] = pokemon
+
+    unique_pokemon = list(seen_species.values())
+
+    # Get levels in batch
+    pokemon_ids = [p['pokemon_id'] for p in unique_pokemon]
+    levels = await db.get_multiple_species_levels(interaction.user.id, interaction.guild.id, pokemon_ids)
+
+    # Add levels
+    pokemon_with_levels = [{**p, 'level': levels.get(p['pokemon_id'], 1)} for p in unique_pokemon]
+    pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
+
+    # Create view for Pokemon selection
+    view = TrainerBattlePokemonSelect(interaction.user, interaction.guild.id, pokemon_with_levels, cooldown['battles_remaining'])
+
+    embed = discord.Embed(
+        title="⚔️ Trainer Battle",
+        description=f"Select a Pokemon to battle against a trainer!\n\n**Battles Remaining:** {cooldown['battles_remaining']}/3",
+        color=discord.Color.blue()
+    )
+    embed.add_field(
+        name="Rewards",
+        value="🏆 Win: **50 XP**\n💫 Lose: **10 XP**",
+        inline=False
+    )
+    embed.set_footer(text="The trainer will use a Pokemon with a similar level to yours (±2 levels)")
+
+    await interaction.followup.send(embed=embed, view=view)
+
+
 @bot.tree.command(name='badges', description='View your gym badge collection!')
 async def badges(interaction: discord.Interaction):
     """Display user's gym badge collection"""
