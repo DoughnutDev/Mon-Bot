@@ -678,13 +678,13 @@ async def get_user_stats(user_id: int, guild_id: int) -> Dict:
 # Trading functions
 
 async def get_user_pokemon_for_trade(user_id: int, guild_id: int) -> List[Dict]:
-    """Get user's Pokemon with individual catch IDs for trading"""
+    """Get user's Pokemon with individual catch IDs for trading/battles"""
     if not pool:
         return []
 
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT id, pokemon_name, pokemon_id, caught_at
+            SELECT id, pokemon_name, pokemon_id, caught_at, is_shiny
             FROM catches
             WHERE user_id = $1 AND guild_id = $2
             ORDER BY pokemon_name ASC, caught_at DESC

@@ -92,13 +92,16 @@ class TrainerBattleView(View):
 
         for pokemon in page_pokemon:
             level = pokemon.get('level', 1)
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
             types = poke_data.get_pokemon_types(pokemon['pokemon_id'])
             types_str = '/'.join([t.title() for t in types]) if types else 'Unknown'
 
             self.pokemon_select.add_option(
-                label=f"{pokemon['pokemon_name']} (Lv.{level})",
+                label=f"{shiny_indicator}{pokemon['pokemon_name']} (Lv.{level})",
                 value=str(pokemon['id']),
-                description=f"#{pokemon['pokemon_id']} - {types_str}"
+                description=f"#{pokemon['pokemon_id']} - {types_str}",
+                emoji="✨" if is_shiny else "⚔️"
             )
 
         self.pokemon_select.callback = self.pokemon_selected
@@ -224,7 +227,8 @@ class TrainerBattleView(View):
             'moves': moves,
             'level': species_level,
             'stats': user_stats,
-            'sprite': poke_data.get_pokemon_sprite(selected_pokemon['pokemon_id'])
+            'sprite': poke_data.get_pokemon_sprite(selected_pokemon['pokemon_id']),
+            'is_shiny': selected_pokemon.get('is_shiny', False)
         }
 
         self.user_max_hp = user_stats['hp']
@@ -510,9 +514,10 @@ class TrainerBattleView(View):
         # User's Pokemon
         user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
         user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
+        user_shiny = "✨ " if self.user_choice.get('is_shiny', False) else ""
 
         embed.add_field(
-            name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']})",
+            name=f"Your {user_shiny}{self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']})",
             value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
             inline=True
         )

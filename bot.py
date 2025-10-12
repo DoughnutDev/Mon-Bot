@@ -1009,11 +1009,13 @@ class GymBattleView(View):
             level = pokemon.get('level', 1)
             # Mark if already selected
             is_selected = pokemon['id'] in self.selected_pokemon_ids
-            label = f"{'✓ ' if is_selected else ''}Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
+            label = f"{'✓ ' if is_selected else ''}Lv.{level} | #{pokemon['pokemon_id']:03d} {shiny_indicator}{pokemon['pokemon_name']}"
             self.pokemon_select.add_option(
                 label=label[:100],  # Discord limit
                 value=str(pokemon['id']),
-                emoji="✅" if is_selected else "⚔️",
+                emoji="✨" if is_shiny else ("✅" if is_selected else "⚔️"),
                 default=is_selected
             )
 
@@ -2079,9 +2081,10 @@ class GymBattleView(View):
         # Show team status
         alive_count = sum(1 for p in self.user_team if p['current_hp'] > 0)
         team_status = f"Team: {alive_count}/{len(self.user_team)}"
+        user_shiny = "✨ " if self.user_choice.get('is_shiny', False) else ""
 
         embed.add_field(
-            name=f"Your {self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']}) - {team_status}",
+            name=f"Your {user_shiny}{self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']}) - {team_status}",
             value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}{user_status_text}{user_stages_text}",
             inline=True
         )
@@ -2814,7 +2817,8 @@ class BattleView(View):
             # User 1's choice
             user1_text = "Not selected"
             if self.user1_choice:
-                user1_text = f"#{self.user1_choice['pokemon_id']:03d} {self.user1_choice['pokemon_name']}"
+                shiny_indicator = "✨ " if self.user1_choice.get('is_shiny', False) else ""
+                user1_text = f"#{self.user1_choice['pokemon_id']:03d} {shiny_indicator}{self.user1_choice['pokemon_name']}"
                 if self.user1_ready:
                     user1_text += " ✅"
 
@@ -2827,7 +2831,8 @@ class BattleView(View):
             # User 2's choice
             user2_text = "Not selected"
             if self.user2_choice:
-                user2_text = f"#{self.user2_choice['pokemon_id']:03d} {self.user2_choice['pokemon_name']}"
+                shiny_indicator = "✨ " if self.user2_choice.get('is_shiny', False) else ""
+                user2_text = f"#{self.user2_choice['pokemon_id']:03d} {shiny_indicator}{self.user2_choice['pokemon_name']}"
                 if self.user2_ready:
                     user2_text += " ✅"
 
@@ -2877,14 +2882,17 @@ class BattleView(View):
             p1_hp_bar = self.create_hp_bar(self.p1_hp, self.p1_max_hp)
             p2_hp_bar = self.create_hp_bar(self.p2_hp, self.p2_max_hp)
 
+            p1_shiny = "✨ " if self.user1_choice.get('is_shiny', False) else ""
+            p2_shiny = "✨ " if self.user2_choice.get('is_shiny', False) else ""
+
             embed.add_field(
-                name=f"{self.user1.display_name}'s {self.user1_choice['pokemon_name']}",
+                name=f"{self.user1.display_name}'s {p1_shiny}{self.user1_choice['pokemon_name']}",
                 value=f"{p1_hp_bar} {self.p1_hp}/{self.p1_max_hp} HP",
                 inline=False
             )
 
             embed.add_field(
-                name=f"{self.user2.display_name}'s {self.user2_choice['pokemon_name']}",
+                name=f"{self.user2.display_name}'s {p2_shiny}{self.user2_choice['pokemon_name']}",
                 value=f"{p2_hp_bar} {self.p2_hp}/{self.p2_max_hp} HP",
                 inline=False
             )
@@ -2941,11 +2949,13 @@ class BattleView(View):
 
         for pokemon in user1_page_pokemon:
             level = pokemon.get('level', 1)
-            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
+            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {shiny_indicator}{pokemon['pokemon_name']}"
             self.user1_select.add_option(
                 label=label[:100],  # Discord limit
                 value=str(pokemon['id']),
-                emoji="⚔️"
+                emoji="✨" if is_shiny else "⚔️"
             )
 
         self.user1_select.callback = self.user1_select_callback
@@ -2966,11 +2976,13 @@ class BattleView(View):
 
         for pokemon in user2_page_pokemon:
             level = pokemon.get('level', 1)
-            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {pokemon['pokemon_name']}"
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
+            label = f"Lv.{level} | #{pokemon['pokemon_id']:03d} {shiny_indicator}{pokemon['pokemon_name']}"
             self.user2_select.add_option(
                 label=label[:100],  # Discord limit
                 value=str(pokemon['id']),
-                emoji="⚔️"
+                emoji="✨" if is_shiny else "⚔️"
             )
 
         self.user2_select.callback = self.user2_select_callback
@@ -4348,13 +4360,16 @@ class TrainerBattlePokemonSelect(View):
 
         for pokemon in page_pokemon:
             level = pokemon.get('level', 1)
+            is_shiny = pokemon.get('is_shiny', False)
+            shiny_indicator = "✨ " if is_shiny else ""
             types = poke_data.get_pokemon_types(pokemon['pokemon_id'])
             types_str = '/'.join([t.title() for t in types]) if types else 'Unknown'
 
             self.pokemon_select.add_option(
-                label=f"{pokemon['pokemon_name']} (Lv.{level})",
+                label=f"{shiny_indicator}{pokemon['pokemon_name']} (Lv.{level})",
                 value=str(pokemon['pokemon_id']),
-                description=f"#{pokemon['pokemon_id']} - {types_str}"
+                description=f"#{pokemon['pokemon_id']} - {types_str}",
+                emoji="✨" if is_shiny else "⚔️"
             )
 
         self.pokemon_select.callback = self.pokemon_selected
