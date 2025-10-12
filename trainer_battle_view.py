@@ -13,7 +13,7 @@ import database as db
 class TrainerBattleView(View):
     """View for trainer battles - simpler than gym battles, 1 user Pokemon vs trainer team"""
 
-    def __init__(self, user: discord.Member, guild_id: int, trainer: dict, trainer_team: list, wild_pokemon: dict, user_pokemon: list, time_taken: float):
+    def __init__(self, user: discord.Member, guild_id: int, trainer: dict, trainer_team: list, wild_pokemon: dict, user_pokemon: list, time_taken: float, is_shiny: bool = False):
         super().__init__(timeout=600)
         self.user = user
         self.guild_id = guild_id
@@ -22,6 +22,7 @@ class TrainerBattleView(View):
         self.wild_pokemon = wild_pokemon  # The Pokemon being fought over
         self.user_pokemon = user_pokemon
         self.time_taken = time_taken
+        self.is_shiny = is_shiny
 
         # Battle state
         self.user_choice = None  # Selected Pokemon
@@ -535,7 +536,8 @@ class TrainerBattleView(View):
             guild_id=self.guild_id,
             pokemon_name=self.wild_pokemon['name'],
             pokemon_id=self.wild_pokemon['id'],
-            pokemon_types=self.wild_pokemon['types']
+            pokemon_types=self.wild_pokemon['types'],
+            is_shiny=self.is_shiny
         )
 
         # Award money

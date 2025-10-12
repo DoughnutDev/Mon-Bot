@@ -46,6 +46,7 @@ async def setup_database():
                     pokemon_name TEXT NOT NULL,
                     pokemon_id INTEGER NOT NULL,
                     pokemon_types TEXT[],
+                    is_shiny BOOLEAN DEFAULT FALSE,
                     caught_at TIMESTAMP DEFAULT NOW()
                 )
             ''')
@@ -349,16 +350,16 @@ async def get_all_spawn_channels() -> Dict[int, List[int]]:
 # Pokemon catch functions
 
 async def add_catch(user_id: int, guild_id: int, pokemon_name: str,
-                   pokemon_id: int, pokemon_types: List[str]):
+                   pokemon_id: int, pokemon_types: List[str], is_shiny: bool = False):
     """Record a Pokemon catch"""
     if not pool:
         return
 
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO catches (user_id, guild_id, pokemon_name, pokemon_id, pokemon_types)
-            VALUES ($1, $2, $3, $4, $5)
-        ''', user_id, guild_id, pokemon_name, pokemon_id, pokemon_types)
+            INSERT INTO catches (user_id, guild_id, pokemon_name, pokemon_id, pokemon_types, is_shiny)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        ''', user_id, guild_id, pokemon_name, pokemon_id, pokemon_types, is_shiny)
 
 
 async def get_user_catches(user_id: int, guild_id: int) -> List[Dict]:
@@ -452,6 +453,27 @@ async def get_legendary_pokemon(user_id: int, guild_id: int) -> List[Dict]:
             GROUP BY pokemon_name, pokemon_id
             ORDER BY pokemon_id ASC
         ''', user_id, guild_id, legendary_ids)
+
+        return [dict(row) for row in rows]
+
+
+async def get_shiny_pokemon(user_id: int, guild_id: int) -> List[Dict]:
+    """Get only shiny Pokemon"""
+    if not pool:
+        return []
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                pokemon_name,
+                pokemon_id,
+                COUNT(*) as count,
+                MAX(caught_at) as last_caught
+            FROM catches
+            WHERE user_id = $1 AND guild_id = $2 AND is_shiny = TRUE
+            GROUP BY pokemon_name, pokemon_id
+            ORDER BY pokemon_id ASC
+        ''', user_id, guild_id)
 
         return [dict(row) for row in rows]
 
@@ -1325,8 +1347,8 @@ async def get_duplicate_pokemon(user_id: int, guild_id: int) -> List[Dict]:
         return [dict(row) for row in rows]
 
 
-def calculate_sell_price(pokemon_id: int) -> int:
-    """Calculate sell price based on Pokemon rarity"""
+def calculate_sell_price(pokemon_id: int, is_shiny: bool = False) -> int:
+    """Calculate sell price based on Pokemon rarity and shiny status"""
     # Gen 1 legendaries: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
     legendary_ids = [144, 145, 146, 150, 151]
 
@@ -1337,13 +1359,19 @@ def calculate_sell_price(pokemon_id: int) -> int:
     rare_ids = [3, 6, 9, 59, 65, 68, 76, 94, 103, 112, 115, 130, 131, 142, 143]
 
     if pokemon_id in legendary_ids:
-        return 100  # Legendaries worth 100
+        base_price = 100  # Legendaries worth 100
     elif pokemon_id in rare_ids:
-        return 50   # Rare Pokemon worth 50
+        base_price = 50   # Rare Pokemon worth 50
     elif pokemon_id in starter_ids:
-        return 30   # Starters worth 30
+        base_price = 30   # Starters worth 30
     else:
-        return 10   # Common Pokemon worth 10
+        base_price = 10   # Common Pokemon worth 10
+
+    # 5x multiplier for shinies
+    if is_shiny:
+        return base_price * 5
+
+    return base_price
 
 
 async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[int]:
@@ -1354,15 +1382,15 @@ async def sell_pokemon(user_id: int, guild_id: int, catch_id: int) -> Optional[i
     async with pool.acquire() as conn:
         # Verify Pokemon exists and belongs to user
         pokemon = await conn.fetchrow('''
-            SELECT user_id, guild_id, pokemon_id, pokemon_name FROM catches
+            SELECT user_id, guild_id, pokemon_id, pokemon_name, is_shiny FROM catches
             WHERE id = $1
         ''', catch_id)
 
         if not pokemon or pokemon['user_id'] != user_id or pokemon['guild_id'] != guild_id:
             return None
 
-        # Calculate sale price based on rarity
-        sale_price = calculate_sell_price(pokemon['pokemon_id'])
+        # Calculate sale price based on rarity and shiny status
+        sale_price = calculate_sell_price(pokemon['pokemon_id'], pokemon.get('is_shiny', False))
 
         # Delete the Pokemon
         await conn.execute('''

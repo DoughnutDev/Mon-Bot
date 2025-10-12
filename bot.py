@@ -323,6 +323,13 @@ async def on_message(message):
             # This prevents the issue where a Pokemon sitting for 10+ minutes triggers immediate spawn after catch
             last_guild_spawn[guild_id] = catch_time
 
+            # Roll for shiny (1/512 base chance = 0.195%)
+            is_shiny = random.random() < (1/512)
+
+            # Update sprite to shiny version if shiny
+            if is_shiny:
+                pokemon['sprite'] = pokemon_data.get_pokemon_sprite(pokemon['id'], shiny=True)
+
             # 15% chance for a trainer to appear and claim the Pokemon
             if random.random() < 0.15:
                 # Get a random trainer
@@ -375,7 +382,8 @@ async def on_message(message):
                     'pokemon': pokemon,
                     'channel_id': message.channel.id,
                     'guild_id': guild_id,
-                    'time_taken': time_taken
+                    'time_taken': time_taken,
+                    'is_shiny': is_shiny
                 }
 
                 # Create "Fight!" button
@@ -432,7 +440,8 @@ async def on_message(message):
                             battle_data['trainer_team'],
                             battle_data['pokemon'],
                             pokemon_with_levels,
-                            battle_data['time_taken']
+                            battle_data['time_taken'],
+                            battle_data.get('is_shiny', False)
                         )
 
                         # Show Pokemon selection
@@ -487,7 +496,8 @@ async def on_message(message):
                 guild_id=guild_id,
                 pokemon_name=pokemon['name'],
                 pokemon_id=pokemon['id'],
-                pokemon_types=pokemon['types']
+                pokemon_types=pokemon['types'],
+                is_shiny=is_shiny
             )
 
             # Award Pokedollars for catching (5-15 based on rarity)
@@ -554,7 +564,7 @@ async def on_message(message):
                 await db.add_currency(user_id, guild_id, quest_currency_earned)
 
             # Send catch confirmation with time and currency reward
-            embed = create_catch_embed(pokemon, message.author, time_taken, currency_reward=currency_reward)
+            embed = create_catch_embed(pokemon, message.author, time_taken, is_shiny=is_shiny, currency_reward=currency_reward)
             catch_message = await message.channel.send(embed=embed)
 
             # Store recent catch for laugh reactions (expire after 10 seconds)
@@ -3495,6 +3505,7 @@ class PokedexView(View):
                 discord.SelectOption(label="📋 Pokedex Number", value="pokedex_number", description="Sort by Pokedex #"),
                 discord.SelectOption(label="⭐ Rarest (Caught Once)", value="rarest", description="Pokemon caught only once"),
                 discord.SelectOption(label="👑 Legendaries Only", value="legendaries", description="Legendary Pokemon"),
+                discord.SelectOption(label="✨ Shinies Only", value="shinies", description="Shiny Pokemon"),
                 discord.SelectOption(label="📅 Recently Caught", value="recently_caught", description="Last unique catches"),
             ]
         )
@@ -3516,6 +3527,8 @@ class PokedexView(View):
         """Load Pokemon based on current sort"""
         if self.sort_by == 'legendaries':
             self.pokemon_list = await db.get_legendary_pokemon(self.user_id, self.guild_id)
+        elif self.sort_by == 'shinies':
+            self.pokemon_list = await db.get_shiny_pokemon(self.user_id, self.guild_id)
         else:
             self.pokemon_list = await db.get_pokemon_with_counts(self.user_id, self.guild_id, self.sort_by)
 
@@ -3538,6 +3551,7 @@ class PokedexView(View):
             'pokedex_number': '📋 Pokedex Number',
             'rarest': '⭐ Rarest (x1)',
             'legendaries': '👑 Legendaries',
+            'shinies': '✨ Shinies',
             'recently_caught': '📅 Recently Caught'
         }
         sort_display = sort_names.get(self.sort_by, 'Most Caught')
@@ -4074,7 +4088,8 @@ async def pack(interaction: discord.Interaction):
                     guild_id=guild_id,
                     pokemon_name=pokemon['name'],
                     pokemon_id=pokemon['id'],
-                    pokemon_types=pokemon['types']
+                    pokemon_types=pokemon['types'],
+                    is_shiny=is_shiny
                 )
 
         # Handle Master Collection guarantee
@@ -4094,7 +4109,8 @@ async def pack(interaction: discord.Interaction):
                             guild_id=guild_id,
                             pokemon_name=pokemon['name'],
                             pokemon_id=pokemon['id'],
-                            pokemon_types=pokemon['types']
+                            pokemon_types=pokemon['types'],
+                            is_shiny=False
                         )
 
     if not pokemon_list:
