@@ -3640,29 +3640,16 @@ class LeaderboardView(View):
 
 # Interactive Pokedex View
 class PokedexView(View):
-    def __init__(self, user_id: int, guild_id: int, username: str):
+    def __init__(self, user_id: int, guild_id: int, username: str, generation_filter: str = 'all'):
         super().__init__(timeout=300)  # 5 minute timeout
         self.user_id = user_id
         self.guild_id = guild_id
         self.username = username
         self.current_page = 0
         self.sort_by = 'most_caught'
-        self.generation_filter = 'all'  # 'all', 'gen1', or 'gen2'
+        self.generation_filter = generation_filter  # 'all', 'gen1', or 'gen2'
         self.pokemon_list = []
         self.per_page = 10
-
-        # Add dropdown for generation filter
-        self.gen_select = Select(
-            placeholder="Filter by generation...",
-            options=[
-                discord.SelectOption(label="All Generations", value="all", description="Show all Pokemon", default=True),
-                discord.SelectOption(label="Gen 1 Only", value="gen1", description="Kanto Pokemon (1-151)"),
-                discord.SelectOption(label="Gen 2 Only", value="gen2", description="Johto Pokemon (152-251)"),
-            ],
-            row=0
-        )
-        self.gen_select.callback = self.gen_callback
-        self.add_item(self.gen_select)
 
         # Add dropdown for sorting
         self.sort_select = Select(
@@ -3675,22 +3662,10 @@ class PokedexView(View):
                 discord.SelectOption(label="👑 Legendaries Only", value="legendaries", description="Legendary Pokemon"),
                 discord.SelectOption(label="✨ Shinies Only", value="shinies", description="Shiny Pokemon"),
                 discord.SelectOption(label="📅 Recently Caught", value="recently_caught", description="Last unique catches"),
-            ],
-            row=1
+            ]
         )
         self.sort_select.callback = self.sort_callback
         self.add_item(self.sort_select)
-
-    async def gen_callback(self, interaction: discord.Interaction):
-        """Handle generation filter selection"""
-        self.generation_filter = self.gen_select.values[0]
-        self.current_page = 0  # Reset to first page
-
-        # Update dropdown to show selected option
-        for option in self.gen_select.options:
-            option.default = (option.value == self.generation_filter)
-
-        await self.update_display(interaction)
 
     async def sort_callback(self, interaction: discord.Interaction):
         """Handle sort selection"""
@@ -3829,8 +3804,16 @@ class PokedexView(View):
 
 
 @bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
-@app_commands.describe(member='The user whose Pokedex you want to view (optional)')
-async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
+@app_commands.describe(
+    member='The user whose Pokedex you want to view (optional)',
+    generation='Filter by generation (optional)'
+)
+@app_commands.choices(generation=[
+    app_commands.Choice(name='All Generations', value='all'),
+    app_commands.Choice(name='Gen 1 (Kanto)', value='gen1'),
+    app_commands.Choice(name='Gen 2 (Johto)', value='gen2')
+])
+async def pokedex(interaction: discord.Interaction, member: discord.Member = None, generation: str = 'all'):
     """View your or another user's caught Pokemon"""
     # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
@@ -3850,8 +3833,8 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
         await interaction.followup.send(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
-    # Create interactive view
-    view = PokedexView(user_id, guild_id, target.display_name)
+    # Create interactive view with generation filter
+    view = PokedexView(user_id, guild_id, target.display_name, generation)
     await view.load_pokemon()
     embed = view.create_embed(stats)
 
