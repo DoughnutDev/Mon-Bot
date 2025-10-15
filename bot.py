@@ -3640,14 +3640,13 @@ class LeaderboardView(View):
 
 # Interactive Pokedex View
 class PokedexView(View):
-    def __init__(self, user_id: int, guild_id: int, username: str, generation_filter: str = 'all'):
+    def __init__(self, user_id: int, guild_id: int, username: str):
         super().__init__(timeout=300)  # 5 minute timeout
         self.user_id = user_id
         self.guild_id = guild_id
         self.username = username
         self.current_page = 0
         self.sort_by = 'most_caught'
-        self.generation_filter = generation_filter  # 'all', 'gen1', or 'gen2'
         self.pokemon_list = []
         self.per_page = 10
 
@@ -3679,19 +3678,13 @@ class PokedexView(View):
         await self.update_display(interaction)
 
     async def load_pokemon(self):
-        """Load Pokemon based on current sort and generation filter"""
+        """Load Pokemon based on current sort"""
         if self.sort_by == 'legendaries':
             self.pokemon_list = await db.get_legendary_pokemon(self.user_id, self.guild_id)
         elif self.sort_by == 'shinies':
             self.pokemon_list = await db.get_shiny_pokemon(self.user_id, self.guild_id)
         else:
             self.pokemon_list = await db.get_pokemon_with_counts(self.user_id, self.guild_id, self.sort_by)
-
-        # Apply generation filter
-        if self.generation_filter == 'gen1':
-            self.pokemon_list = [p for p in self.pokemon_list if 1 <= p['pokemon_id'] <= 151]
-        elif self.generation_filter == 'gen2':
-            self.pokemon_list = [p for p in self.pokemon_list if 152 <= p['pokemon_id'] <= 251]
 
         # Fetch levels in batch for better performance
         if self.pokemon_list:
@@ -3718,20 +3711,9 @@ class PokedexView(View):
         }
         sort_display = sort_names.get(self.sort_by, 'Most Caught')
 
-        # Calculate unique count based on generation filter
-        if self.generation_filter == 'gen1':
-            max_pokemon = 151
-            gen_text = "(Gen 1)"
-        elif self.generation_filter == 'gen2':
-            max_pokemon = 100  # Gen 2 has 100 Pokemon (152-251)
-            gen_text = "(Gen 2)"
-        else:
-            max_pokemon = 251  # Gen 1 + 2
-            gen_text = "(All)"
-
         embed = discord.Embed(
-            title=f"{self.username}'s Pokedex {gen_text}",
-            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/{max_pokemon} ({stats['unique']/max_pokemon*100:.1f}%)",
+            title=f"{self.username}'s Pokedex",
+            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/251 ({stats['unique']/251*100:.1f}%)",
             color=discord.Color.blue()
         )
 
@@ -3741,21 +3723,20 @@ class PokedexView(View):
         page_pokemon = self.pokemon_list[start_idx:end_idx]
 
         if page_pokemon:
-            # Create table header with gen indicator
-            header = " #    Name        Gen Lvl Qty  Value\n" + "─" * 40
+            # Create table header
+            header = " #    Name          Lvl  Qty  Value\n" + "─" * 38
 
             # Create table rows
             pokemon_rows = [header]
             for poke in page_pokemon:
                 pokedex_num = f"{poke['pokemon_id']:03d}"
-                name = poke['pokemon_name'][:11].ljust(11)  # Limit name to 11 chars for gen column
-                gen = poke_data.get_pokemon_generation(poke['pokemon_id'])
+                name = poke['pokemon_name'][:13].ljust(13)  # Limit name to 13 chars
                 level = f"{poke.get('level', 1):<3}"
                 count = f"x{poke['count']:<2}"
                 sell_value = db.calculate_sell_price(poke['pokemon_id'])
-                value = f"{sell_value}💰"
+                value = f"₽{sell_value}"
 
-                row = f"{pokedex_num}  {name} {gen}  {level} {count}  {value}"
+                row = f"{pokedex_num}  {name}  {level}  {count}  {value}"
                 pokemon_rows.append(row)
 
             embed.add_field(
@@ -3804,16 +3785,8 @@ class PokedexView(View):
 
 
 @bot.tree.command(name='pokedex', description='View your Pokedex or another user\'s')
-@app_commands.describe(
-    member='The user whose Pokedex you want to view (optional)',
-    generation='Filter by generation (optional)'
-)
-@app_commands.choices(generation=[
-    app_commands.Choice(name='All Generations', value='all'),
-    app_commands.Choice(name='Gen 1 (Kanto)', value='gen1'),
-    app_commands.Choice(name='Gen 2 (Johto)', value='gen2')
-])
-async def pokedex(interaction: discord.Interaction, member: discord.Member = None, generation: str = 'all'):
+@app_commands.describe(member='The user whose Pokedex you want to view (optional)')
+async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
     """View your or another user's caught Pokemon"""
     # Defer IMMEDIATELY before any checks
     await interaction.response.defer()
@@ -3833,8 +3806,8 @@ async def pokedex(interaction: discord.Interaction, member: discord.Member = Non
         await interaction.followup.send(f"{target.display_name} hasn't caught any Pokemon yet!")
         return
 
-    # Create interactive view with generation filter
-    view = PokedexView(user_id, guild_id, target.display_name, generation)
+    # Create interactive view
+    view = PokedexView(user_id, guild_id, target.display_name)
     await view.load_pokemon()
     embed = view.create_embed(stats)
 
