@@ -2183,7 +2183,7 @@ class GymBattleView(View):
                 self.guild_id,
                 pokemon['pokemon_id'],
                 pokemon['pokemon_name'],
-                50,  # XP for gym victory
+                25,  # XP for gym victory
                 is_win=True
             )
 
@@ -2251,11 +2251,11 @@ class GymBattleView(View):
         # Show XP gained for all team members
         team_names = [p['pokemon_name'] for p in self.user_team]
         if len(team_names) == 1:
-            xp_text = f"**{team_names[0]}** gained +50 XP!"
+            xp_text = f"**{team_names[0]}** gained +25 XP!"
         elif len(team_names) == 2:
-            xp_text = f"**{team_names[0]}** and **{team_names[1]}** each gained +50 XP!"
+            xp_text = f"**{team_names[0]}** and **{team_names[1]}** each gained +25 XP!"
         else:
-            xp_text = f"**{', '.join(team_names[:-1])}, and {team_names[-1]}** each gained +50 XP!"
+            xp_text = f"**{', '.join(team_names[:-1])}, and {team_names[-1]}** each gained +25 XP!"
 
         embed.add_field(
             name=f"⭐ Team XP Gained!",
@@ -3657,6 +3657,7 @@ class PokedexView(View):
                 discord.SelectOption(label="🔢 Most Caught", value="most_caught", description="Sort by catch count", default=True),
                 discord.SelectOption(label="🔤 Alphabetical", value="alphabetical", description="Sort A-Z"),
                 discord.SelectOption(label="📋 Pokedex Number", value="pokedex_number", description="Sort by Pokedex #"),
+                discord.SelectOption(label="📈 Highest Level", value="highest_level", description="Sort by highest level"),
                 discord.SelectOption(label="⭐ Rarest (Caught Once)", value="rarest", description="Pokemon caught only once"),
                 discord.SelectOption(label="👑 Legendaries Only", value="legendaries", description="Legendary Pokemon"),
                 discord.SelectOption(label="✨ Shinies Only", value="shinies", description="Shiny Pokemon"),
@@ -3695,6 +3696,10 @@ class PokedexView(View):
             for pokemon in self.pokemon_list:
                 pokemon['level'] = level_dict.get(pokemon['pokemon_id'], 1)
 
+            # Sort by highest level if requested
+            if self.sort_by == 'highest_level':
+                self.pokemon_list.sort(key=lambda p: p['level'], reverse=True)
+
     def create_embed(self, stats: dict):
         """Create the Pokedex embed"""
         total_pages = max(1, (len(self.pokemon_list) + self.per_page - 1) // self.per_page)
@@ -3704,6 +3709,7 @@ class PokedexView(View):
             'most_caught': '🔢 Most Caught',
             'alphabetical': '🔤 Alphabetical',
             'pokedex_number': '📋 Pokedex Number',
+            'highest_level': '📈 Highest Level',
             'rarest': '⭐ Rarest (x1)',
             'legendaries': '👑 Legendaries',
             'shinies': '✨ Shinies',
