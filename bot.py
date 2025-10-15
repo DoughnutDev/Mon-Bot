@@ -3724,19 +3724,20 @@ class PokedexView(View):
 
         if page_pokemon:
             # Create table header
-            header = " #    Name          Lvl  Qty  Value\n" + "─" * 38
+            header = " #    Name         Gen Lvl Qty  Value\n" + "─" * 40
 
             # Create table rows
             pokemon_rows = [header]
             for poke in page_pokemon:
                 pokedex_num = f"{poke['pokemon_id']:03d}"
-                name = poke['pokemon_name'][:13].ljust(13)  # Limit name to 13 chars
+                name = poke['pokemon_name'][:12].ljust(12)  # Limit name to 12 chars
+                gen = poke_data.get_pokemon_generation(poke['pokemon_id'])
                 level = f"{poke.get('level', 1):<3}"
                 count = f"x{poke['count']:<2}"
                 sell_value = db.calculate_sell_price(poke['pokemon_id'])
                 value = f"₽{sell_value}"
 
-                row = f"{pokedex_num}  {name}  {level}  {count}  {value}"
+                row = f"{pokedex_num}  {name} {gen}   {level} {count}  {value}"
                 pokemon_rows.append(row)
 
             embed.add_field(
