@@ -1190,6 +1190,9 @@ class GymBattleView(View):
         self.gym_pokemon_index = 0
         self.user_pokemon_index = 0
 
+        # Update quest progress for challenging a gym
+        await db.update_quest_progress(self.user.id, self.guild_id, 'challenge_gyms')
+
         # Load first gym Pokemon
         await self.load_gym_pokemon()
 
@@ -1413,18 +1416,28 @@ class GymBattleView(View):
                     self.user_team[self.user_pokemon_index]['current_hp'] = 0
                     self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
-                    # Check if user has more Pokemon
-                    if self.user_pokemon_index < len(self.user_team) - 1:
-                        # Find next alive Pokemon
-                        for i in range(len(self.user_team)):
-                            if self.user_team[i]['current_hp'] > 0:
-                                self.user_pokemon_index = i
-                                self.user_choice = self.user_team[i]
-                                self.user_max_hp = self.user_choice['max_hp']
-                                self.user_current_hp = self.user_choice['current_hp']
-                                self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
-                                break
-                    else:
+                    # Find next alive Pokemon
+                    found_alive = False
+                    for i in range(len(self.user_team)):
+                        if self.user_team[i]['current_hp'] > 0:
+                            self.user_pokemon_index = i
+                            self.user_choice = self.user_team[i]
+                            self.user_max_hp = self.user_choice['max_hp']
+                            self.user_current_hp = self.user_choice['current_hp']
+
+                            # Reset stat stages and status for new Pokemon
+                            self.user_stat_stages = {
+                                'attack': 0, 'defense': 0, 'special-attack': 0,
+                                'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                            }
+                            self.user_status = None
+                            self.user_status_turns = 0
+
+                            self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                            found_alive = True
+                            break
+
+                    if not found_alive:
                         # User is out of Pokemon
                         await self.handle_defeat(select_interaction)
                         return
@@ -1584,27 +1597,32 @@ class GymBattleView(View):
                     self.user_team[self.user_pokemon_index]['current_hp'] = 0
                     self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
-                    # Check if user has more Pokemon
-                    if self.user_pokemon_index < len(self.user_team) - 1:
-                        self.user_pokemon_index += 1
-                        self.user_choice = self.user_team[self.user_pokemon_index]
-                        self.user_max_hp = self.user_choice['max_hp']
-                        self.user_current_hp = self.user_choice['current_hp']
+                    # Find next alive Pokemon
+                    found_alive = False
+                    for i in range(len(self.user_team)):
+                        if self.user_team[i]['current_hp'] > 0:
+                            self.user_pokemon_index = i
+                            self.user_choice = self.user_team[i]
+                            self.user_max_hp = self.user_choice['max_hp']
+                            self.user_current_hp = self.user_choice['current_hp']
 
-                        # Reset stat stages and status for new Pokemon
-                        self.user_stat_stages = {
-                            'attack': 0, 'defense': 0, 'special-attack': 0,
-                            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
-                        }
-                        self.user_status = None
-                        self.user_status_turns = 0
+                            # Reset stat stages and status for new Pokemon
+                            self.user_stat_stages = {
+                                'attack': 0, 'defense': 0, 'special-attack': 0,
+                                'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                            }
+                            self.user_status = None
+                            self.user_status_turns = 0
 
-                        self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                            self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
 
-                        # Update move buttons for new Pokemon
-                        self.clear_items()
-                        await self.create_battle_buttons()
-                    else:
+                            # Update move buttons for new Pokemon
+                            self.clear_items()
+                            await self.create_battle_buttons()
+                            found_alive = True
+                            break
+
+                    if not found_alive:
                         # User is out of Pokemon
                         await self.handle_defeat(interaction)
                         return
@@ -1658,27 +1676,32 @@ class GymBattleView(View):
                 self.user_team[self.user_pokemon_index]['current_hp'] = 0
                 self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
-                # Check if user has more Pokemon
-                if self.user_pokemon_index < len(self.user_team) - 1:
-                    self.user_pokemon_index += 1
-                    self.user_choice = self.user_team[self.user_pokemon_index]
-                    self.user_max_hp = self.user_choice['max_hp']
-                    self.user_current_hp = self.user_choice['current_hp']
+                # Find next alive Pokemon
+                found_alive = False
+                for i in range(len(self.user_team)):
+                    if self.user_team[i]['current_hp'] > 0:
+                        self.user_pokemon_index = i
+                        self.user_choice = self.user_team[i]
+                        self.user_max_hp = self.user_choice['max_hp']
+                        self.user_current_hp = self.user_choice['current_hp']
 
-                    # Reset stat stages and status for new Pokemon
-                    self.user_stat_stages = {
-                        'attack': 0, 'defense': 0, 'special-attack': 0,
-                        'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
-                    }
-                    self.user_status = None
-                    self.user_status_turns = 0
+                        # Reset stat stages and status for new Pokemon
+                        self.user_stat_stages = {
+                            'attack': 0, 'defense': 0, 'special-attack': 0,
+                            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                        }
+                        self.user_status = None
+                        self.user_status_turns = 0
 
-                    self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                        self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
 
-                    # Update move buttons for new Pokemon
-                    self.clear_items()
-                    await self.create_battle_buttons()
-                else:
+                        # Update move buttons for new Pokemon
+                        self.clear_items()
+                        await self.create_battle_buttons()
+                        found_alive = True
+                        break
+
+                if not found_alive:
                     # User is out of Pokemon
                     await self.handle_defeat(interaction)
                     return
@@ -1752,27 +1775,32 @@ class GymBattleView(View):
             self.user_team[self.user_pokemon_index]['current_hp'] = 0
             self.battle_log.append(f"**{self.user_choice['pokemon_name']}** fainted!")
 
-            # Check if user has more Pokemon
-            if self.user_pokemon_index < len(self.user_team) - 1:
-                self.user_pokemon_index += 1
-                self.user_choice = self.user_team[self.user_pokemon_index]
-                self.user_max_hp = self.user_choice['max_hp']
-                self.user_current_hp = self.user_choice['current_hp']
+            # Find next alive Pokemon
+            found_alive = False
+            for i in range(len(self.user_team)):
+                if self.user_team[i]['current_hp'] > 0:
+                    self.user_pokemon_index = i
+                    self.user_choice = self.user_team[i]
+                    self.user_max_hp = self.user_choice['max_hp']
+                    self.user_current_hp = self.user_choice['current_hp']
 
-                # Reset stat stages and status for new Pokemon
-                self.user_stat_stages = {
-                    'attack': 0, 'defense': 0, 'special-attack': 0,
-                    'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
-                }
-                self.user_status = None
-                self.user_status_turns = 0
+                    # Reset stat stages and status for new Pokemon
+                    self.user_stat_stages = {
+                        'attack': 0, 'defense': 0, 'special-attack': 0,
+                        'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+                    }
+                    self.user_status = None
+                    self.user_status_turns = 0
 
-                self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
+                    self.battle_log.append(f"Go, **{self.user_choice['pokemon_name']}**!")
 
-                # Update move buttons for new Pokemon
-                self.clear_items()
-                await self.create_battle_buttons()
-            else:
+                    # Update move buttons for new Pokemon
+                    self.clear_items()
+                    await self.create_battle_buttons()
+                    found_alive = True
+                    break
+
+            if not found_alive:
                 # User is out of Pokemon
                 await self.handle_defeat(interaction)
                 return
@@ -2153,12 +2181,40 @@ class GymBattleView(View):
                 is_win=True
             )
 
+        # Track quest progress
+        quest_currency = 0
+        quest_completed = []
+
         if not self.already_defeated:
             # Award badge
             await db.award_gym_badge(self.user.id, self.guild_id, self.gym_key)
 
+            # Update quest progress for defeating gym and earning badge
+            defeat_quest = await db.update_quest_progress(self.user.id, self.guild_id, 'defeat_gym_leader')
+            badge_quest = await db.update_quest_progress(self.user.id, self.guild_id, 'earn_badge')
+
+            # Combine quest rewards
+            if defeat_quest and defeat_quest.get('completed_quests'):
+                quest_completed.extend(defeat_quest['completed_quests'])
+                quest_currency += defeat_quest.get('total_currency', 0)
+            if badge_quest and badge_quest.get('completed_quests'):
+                quest_completed.extend(badge_quest['completed_quests'])
+                quest_currency += badge_quest.get('total_currency', 0)
+
+            # Award quest currency if any
+            if quest_currency > 0:
+                await db.add_currency(self.user.id, self.guild_id, quest_currency)
+
             # Award Pokedollars
-            await db.add_currency(self.user.id, self.guild_id, self.gym_data['rewards']['pokedollars'])
+            pokedollars_earned = self.gym_data['rewards']['pokedollars']
+            await db.add_currency(self.user.id, self.guild_id, pokedollars_earned)
+
+            # Update quest for earning pokedollars
+            earn_quest = await db.update_quest_progress(self.user.id, self.guild_id, 'earn_pokedollars', increment=pokedollars_earned)
+            if earn_quest and earn_quest.get('completed_quests'):
+                quest_completed.extend(earn_quest['completed_quests'])
+                quest_currency += earn_quest.get('total_currency', 0)
+                await db.add_currency(self.user.id, self.guild_id, earn_quest.get('total_currency', 0))
 
             # Award pack
             # Get pack from shop
@@ -2171,7 +2227,7 @@ class GymBattleView(View):
 
             # Show rewards
             rewards_text = f"**{self.gym_data['badge']}**\n"
-            rewards_text += f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
+            rewards_text += f"₽{pokedollars_earned} Pokedollars\n"
             rewards_text += f"1x {pack_name}"
 
             embed.add_field(
@@ -2200,6 +2256,23 @@ class GymBattleView(View):
             value=xp_text,
             inline=False
         )
+
+        # Add quest completion notification if any
+        if quest_completed:
+            quest_text = []
+            seen = set()
+            for q in quest_completed:
+                desc = q.get('description', 'Quest')
+                if desc not in seen:
+                    seen.add(desc)
+                    quest_text.append(f"✅ {desc} (+₽{q['reward']})")
+
+            if quest_text:
+                embed.add_field(
+                    name="🎯 Quests Completed!",
+                    value='\n'.join(quest_text),
+                    inline=False
+                )
 
         await interaction.edit_original_response(embed=embed, view=self)
 
@@ -5950,16 +6023,22 @@ async def sell(interaction: discord.Interaction):
 
         selected_name = select.values[0]
 
-        # Find a duplicate catch to sell (not the first one caught)
+        # Find a duplicate catch to sell (not the first one caught, and not shinies)
         user_catches = await db.get_user_pokemon_for_trade(user_id, guild_id)
         catches_of_type = [c for c in user_catches if c['pokemon_name'] == selected_name]
 
-        if len(catches_of_type) < 2:
-            await select_interaction.response.send_message("❌ You can't sell your last copy of this Pokemon!", ephemeral=True)
+        # Filter out shinies when looking for duplicates
+        non_shiny_catches = [c for c in catches_of_type if not c.get('is_shiny', False)]
+
+        if len(non_shiny_catches) < 2:
+            if any(c.get('is_shiny', False) for c in catches_of_type):
+                await select_interaction.response.send_message("❌ Cannot sell! You only have shiny copies of this Pokemon, which are protected from selling.", ephemeral=True)
+            else:
+                await select_interaction.response.send_message("❌ You can't sell your last copy of this Pokemon!", ephemeral=True)
             return
 
-        # Sell the most recent catch (last in list)
-        catch_to_sell = catches_of_type[-1]
+        # Sell the most recent non-shiny catch (last in list)
+        catch_to_sell = non_shiny_catches[-1]
 
         # Attempt to sell
         sale_price = await db.sell_pokemon(user_id, guild_id, catch_to_sell['id'])
@@ -6038,23 +6117,36 @@ async def sell(interaction: discord.Interaction):
                 species_dict[name] = []
             species_dict[name].append(catch)
 
-        # Sell all duplicates (keeping first of each species)
+        # Sell all duplicates (keeping first of each species and all shinies)
         total_earned = 0
         total_sold = 0
         species_sold = {}  # Track how many of each species sold
+        shinies_protected = 0  # Track how many shinies were protected
 
         for species_name, catches in species_dict.items():
             if len(catches) > 1:
-                # Sell all but the first one
-                for catch in catches[1:]:
-                    sale_price = await db.sell_pokemon(user_id, guild_id, catch['id'])
-                    if sale_price is not None:
-                        total_earned += sale_price
-                        total_sold += 1
-                        species_sold[species_name] = species_sold.get(species_name, 0) + 1
+                # Separate shinies from non-shinies
+                non_shiny_catches = [c for c in catches if not c.get('is_shiny', False)]
+                shiny_catches = [c for c in catches if c.get('is_shiny', False)]
+
+                # Count protected shinies
+                shinies_protected += len(shiny_catches)
+
+                # Only sell non-shiny duplicates (keep at least one non-shiny if it exists)
+                if len(non_shiny_catches) > 1:
+                    # Sell all non-shiny duplicates except the first one
+                    for catch in non_shiny_catches[1:]:
+                        sale_price = await db.sell_pokemon(user_id, guild_id, catch['id'])
+                        if sale_price is not None:
+                            total_earned += sale_price
+                            total_sold += 1
+                            species_sold[species_name] = species_sold.get(species_name, 0) + 1
 
         if total_sold == 0:
-            await button_interaction.followup.send("❌ No duplicates to sell! You only have one of each Pokemon.", ephemeral=True)
+            if shinies_protected > 0:
+                await button_interaction.followup.send(f"❌ No duplicates to sell! All your duplicate Pokemon are shiny ({shinies_protected} protected) or you only have one of each.", ephemeral=True)
+            else:
+                await button_interaction.followup.send("❌ No duplicates to sell! You only have one of each Pokemon.", ephemeral=True)
             return
 
         # Get new balance
@@ -6111,6 +6203,14 @@ async def sell(interaction: discord.Interaction):
             value=f"₽{new_balance:,}",
             inline=False
         )
+
+        # Add shiny protection notice if any shinies were protected
+        if shinies_protected > 0:
+            success_embed.add_field(
+                name="✨ Shiny Pokemon Protected",
+                value=f"**{shinies_protected}** shiny Pokemon were kept safe and not sold!",
+                inline=False
+            )
 
         # Add quest completion notification if any
         if total_quest_currency > 0:
