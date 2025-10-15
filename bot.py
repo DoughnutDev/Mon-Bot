@@ -3718,13 +3718,14 @@ class PokedexView(View):
         elif self.generation_filter == 'gen2':
             self.pokemon_list = [p for p in self.pokemon_list if 152 <= p['pokemon_id'] <= 251]
 
-        # Fetch levels for each Pokemon species
-        for pokemon in self.pokemon_list:
-            level = await db.get_species_level(
-                self.user_id, self.guild_id,
-                pokemon['pokemon_id'], pokemon['pokemon_name']
-            )
-            pokemon['level'] = level
+        # Fetch levels in batch for better performance
+        if self.pokemon_list:
+            pokemon_ids = [p['pokemon_id'] for p in self.pokemon_list]
+            level_dict = await db.get_multiple_species_levels(self.user_id, self.guild_id, pokemon_ids)
+
+            # Assign levels to pokemon
+            for pokemon in self.pokemon_list:
+                pokemon['level'] = level_dict.get(pokemon['pokemon_id'], 1)
 
     def create_embed(self, stats: dict):
         """Create the Pokedex embed"""
