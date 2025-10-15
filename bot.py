@@ -1232,7 +1232,6 @@ class GymBattleView(View):
         )
 
         rewards_text = f"₽{self.gym_data['rewards']['pokedollars']} Pokedollars\n"
-        rewards_text += f"{self.gym_data['rewards']['xp']} BP XP\n"
         rewards_text += f"1x {self.gym_data['rewards']['pack']}\n"
         rewards_text += f"**{self.gym_data['badge']}**"
 
@@ -5235,7 +5234,7 @@ async def gym(interaction: discord.Interaction):
         value = f"**Type:** {gym_data['type']}\n"
         value += f"**Location:** {gym_data['location']}\n"
         value += f"**Difficulty:** {'⭐' * gym_data['difficulty']}\n"
-        value += f"**Rewards:** ₽{gym_data['rewards']['pokedollars']} | {gym_data['rewards']['xp']} BP XP | {gym_data['rewards']['pack']}"
+        value += f"**Rewards:** ₽{gym_data['rewards']['pokedollars']} | {gym_data['rewards']['pack']}"
 
         if has_badge:
             value += f"\n✅ **Defeated!**"

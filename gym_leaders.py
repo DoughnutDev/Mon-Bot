@@ -305,17 +305,158 @@ GYM_LEADERS = {
 # Gym order for display purposes (but can be challenged in any order)
 GYM_ORDER = ['brock', 'misty', 'lt_surge', 'erika', 'koga', 'sabrina', 'blaine', 'giovanni']
 
+# Gen 2 Johto Gym Leaders
+GYM_LEADERS_JOHTO = {
+    'falkner': {
+        'name': 'Falkner',
+        'title': 'The Elegant Master of Flying Pokemon',
+        'type': 'Flying',
+        'badge': '🪶 Zephyr Badge',
+        'badge_emoji': '🪶',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/9.png',
+        'location': 'Violet City',
+        'pokemon': [
+            {'name': 'Pidgey', 'id': 16, 'level': 7, 'types': ['normal', 'flying']},
+            {'name': 'Pidgeotto', 'id': 17, 'level': 9, 'types': ['normal', 'flying']}
+        ],
+        'rewards': {'pokedollars': 500, 'pack': 'Basic Pack'},
+        'difficulty': 1
+    },
+    'bugsy': {
+        'name': 'Bugsy',
+        'title': 'The Walking Bug Pokemon Encyclopedia',
+        'type': 'Bug',
+        'badge': '🪲 Hive Badge',
+        'badge_emoji': '🪲',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/10.png',
+        'location': 'Azalea Town',
+        'pokemon': [
+            {'name': 'Metapod', 'id': 11, 'level': 14, 'types': ['bug']},
+            {'name': 'Kakuna', 'id': 14, 'level': 14, 'types': ['bug', 'poison']},
+            {'name': 'Scyther', 'id': 123, 'level': 16, 'types': ['bug', 'flying']}
+        ],
+        'rewards': {'pokedollars': 750, 'pack': 'Basic Pack'},
+        'difficulty': 2
+    },
+    'whitney': {
+        'name': 'Whitney',
+        'title': 'The Incredibly Pretty Girl',
+        'type': 'Normal',
+        'badge': '🥛 Plain Badge',
+        'badge_emoji': '🥛',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/11.png',
+        'location': 'Goldenrod City',
+        'pokemon': [
+            {'name': 'Clefairy', 'id': 35, 'level': 18, 'types': ['fairy']},
+            {'name': 'Miltank', 'id': 241, 'level': 20, 'types': ['normal']}
+        ],
+        'rewards': {'pokedollars': 1000, 'pack': 'Booster Pack'},
+        'difficulty': 3
+    },
+    'morty': {
+        'name': 'Morty',
+        'title': 'The Mystic Seer of the Future',
+        'type': 'Ghost',
+        'badge': '👻 Fog Badge',
+        'badge_emoji': '👻',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/12.png',
+        'location': 'Ecruteak City',
+        'pokemon': [
+            {'name': 'Gastly', 'id': 92, 'level': 21, 'types': ['ghost', 'poison']},
+            {'name': 'Haunter', 'id': 93, 'level': 21, 'types': ['ghost', 'poison']},
+            {'name': 'Gengar', 'id': 94, 'level': 25, 'types': ['ghost', 'poison']},
+            {'name': 'Haunter', 'id': 93, 'level': 23, 'types': ['ghost', 'poison']}
+        ],
+        'rewards': {'pokedollars': 1250, 'pack': 'Booster Pack'},
+        'difficulty': 4
+    },
+    'chuck': {
+        'name': 'Chuck',
+        'title': 'His Roaring Fists Do the Talking',
+        'type': 'Fighting',
+        'badge': '👊 Storm Badge',
+        'badge_emoji': '👊',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/13.png',
+        'location': 'Cianwood City',
+        'pokemon': [
+            {'name': 'Primeape', 'id': 57, 'level': 27, 'types': ['fighting']},
+            {'name': 'Poliwrath', 'id': 62, 'level': 30, 'types': ['water', 'fighting']}
+        ],
+        'rewards': {'pokedollars': 1500, 'pack': 'Premium Pack'},
+        'difficulty': 5
+    },
+    'jasmine': {
+        'name': 'Jasmine',
+        'title': 'The Steel-Clad Defense Girl',
+        'type': 'Steel',
+        'badge': '⚙️ Mineral Badge',
+        'badge_emoji': '⚙️',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/14.png',
+        'location': 'Olivine City',
+        'pokemon': [
+            {'name': 'Magnemite', 'id': 81, 'level': 30, 'types': ['electric', 'steel']},
+            {'name': 'Magnemite', 'id': 81, 'level': 30, 'types': ['electric', 'steel']},
+            {'name': 'Steelix', 'id': 208, 'level': 35, 'types': ['steel', 'ground']}
+        ],
+        'rewards': {'pokedollars': 1750, 'pack': 'Premium Pack'},
+        'difficulty': 6
+    },
+    'pryce': {
+        'name': 'Pryce',
+        'title': 'The Teacher of Winter\'s Harshness',
+        'type': 'Ice',
+        'badge': '❄️ Glacier Badge',
+        'badge_emoji': '❄️',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/15.png',
+        'location': 'Mahogany Town',
+        'pokemon': [
+            {'name': 'Seel', 'id': 86, 'level': 27, 'types': ['water']},
+            {'name': 'Dewgong', 'id': 87, 'level': 29, 'types': ['water', 'ice']},
+            {'name': 'Piloswine', 'id': 221, 'level': 31, 'types': ['ice', 'ground']}
+        ],
+        'rewards': {'pokedollars': 2000, 'pack': 'Elite Trainer Pack'},
+        'difficulty': 7
+    },
+    'clair': {
+        'name': 'Clair',
+        'title': 'The Blessed User of Dragon Pokemon',
+        'type': 'Dragon',
+        'badge': '🐉 Rising Badge',
+        'badge_emoji': '🐉',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/16.png',
+        'location': 'Blackthorn City',
+        'pokemon': [
+            {'name': 'Dragonair', 'id': 148, 'level': 37, 'types': ['dragon']},
+            {'name': 'Dragonair', 'id': 148, 'level': 37, 'types': ['dragon']},
+            {'name': 'Dragonair', 'id': 148, 'level': 37, 'types': ['dragon']},
+            {'name': 'Kingdra', 'id': 230, 'level': 40, 'types': ['water', 'dragon']}
+        ],
+        'rewards': {'pokedollars': 2500, 'pack': 'Elite Trainer Pack'},
+        'difficulty': 8
+    }
+}
+
+GYM_ORDER_JOHTO = ['falkner', 'bugsy', 'whitney', 'morty', 'chuck', 'jasmine', 'pryce', 'clair']
+
 
 def get_gym_leader(gym_key: str):
-    """Get gym leader data by key"""
-    return GYM_LEADERS.get(gym_key.lower())
+    """Get gym leader data by key from either region"""
+    key = gym_key.lower()
+    if key in GYM_LEADERS:
+        return GYM_LEADERS[key]
+    return GYM_LEADERS_JOHTO.get(key)
 
 
 def get_all_gym_leaders():
-    """Get all gym leaders in order"""
+    """Get all Kanto gym leaders in order"""
     return [(key, GYM_LEADERS[key]) for key in GYM_ORDER]
 
 
+def get_all_gym_leaders_johto():
+    """Get all Johto gym leaders in order"""
+    return [(key, GYM_LEADERS_JOHTO[key]) for key in GYM_ORDER_JOHTO]
+
+
 def get_gym_count():
-    """Get total number of gyms"""
-    return len(GYM_LEADERS)
+    """Get total number of gyms across all regions"""
+    return len(GYM_LEADERS) + len(GYM_LEADERS_JOHTO)
