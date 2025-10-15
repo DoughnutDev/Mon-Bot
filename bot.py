@@ -48,7 +48,7 @@ recent_catches = {}  # {channel_id: {'message': catch_message, 'timestamp': date
 async def fetch_pokemon(session, pokemon_id=None):
     """Fetch a random or specific Pokemon from PokeAPI"""
     if pokemon_id is None:
-        pokemon_id = random.randint(1, 151)  # Gen 1 Pokemon only
+        pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
 
     url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
 
@@ -198,10 +198,12 @@ def get_type_icon_url(type_name: str) -> str:
 def create_spawn_embed(pokemon):
     """Create an embed for a spawned Pokemon"""
     types_str = '/'.join([t.title() for t in pokemon['types']])
+    generation = poke_data.get_pokemon_generation(pokemon['id'])
+    gen_text = f"Gen {generation}"
 
     embed = discord.Embed(
         title=f"A wild {pokemon['name']} appeared!",
-        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']}\n\nType `ball` to catch it!",
+        description=f"**Type:** {types_str}\n**Pokedex #:** {pokemon['id']} ({gen_text})\n\nType `ball` to catch it!",
         color=discord.Color.green()
     )
 
@@ -525,7 +527,9 @@ async def on_message(message):
             )
 
             # Award Pokedollars for catching (5-15 based on rarity)
-            legendary_ids = [144, 145, 146, 150, 151]
+            # Gen 1: Articuno, Zapdos, Moltres, Mewtwo, Mew
+            # Gen 2: Raikou, Entei, Suicune, Lugia, Ho-Oh, Celebi
+            legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251]
             if pokemon['id'] in legendary_ids:
                 currency_reward = 50  # Legendary = 50 Pokedollars
             else:
@@ -545,8 +549,10 @@ async def on_message(message):
                     quest_result['total_currency'] += earn_quest_result['total_currency']
                     quest_result['completed_quests'].extend(earn_quest_result['completed_quests'])
 
-            # Check if caught Pokemon is legendary (IDs 144-151)
-            legendary_ids = [144, 145, 146, 150, 151]
+            # Check if caught Pokemon is legendary
+            # Gen 1: Articuno, Zapdos, Moltres, Mewtwo, Mew
+            # Gen 2: Raikou, Entei, Suicune, Lugia, Ho-Oh, Celebi
+            legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251]
             if pokemon['id'] in legendary_ids:
                 legendary_quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_legendary')
                 if legendary_quest_result and legendary_quest_result.get('completed_quests'):
@@ -3641,8 +3647,22 @@ class PokedexView(View):
         self.username = username
         self.current_page = 0
         self.sort_by = 'most_caught'
+        self.generation_filter = 'all'  # 'all', 'gen1', or 'gen2'
         self.pokemon_list = []
         self.per_page = 10
+
+        # Add dropdown for generation filter
+        self.gen_select = Select(
+            placeholder="Filter by generation...",
+            options=[
+                discord.SelectOption(label="All Generations", value="all", description="Show all Pokemon", default=True),
+                discord.SelectOption(label="Gen 1 Only", value="gen1", description="Kanto Pokemon (1-151)"),
+                discord.SelectOption(label="Gen 2 Only", value="gen2", description="Johto Pokemon (152-251)"),
+            ],
+            row=0
+        )
+        self.gen_select.callback = self.gen_callback
+        self.add_item(self.gen_select)
 
         # Add dropdown for sorting
         self.sort_select = Select(
@@ -3655,10 +3675,22 @@ class PokedexView(View):
                 discord.SelectOption(label="👑 Legendaries Only", value="legendaries", description="Legendary Pokemon"),
                 discord.SelectOption(label="✨ Shinies Only", value="shinies", description="Shiny Pokemon"),
                 discord.SelectOption(label="📅 Recently Caught", value="recently_caught", description="Last unique catches"),
-            ]
+            ],
+            row=1
         )
         self.sort_select.callback = self.sort_callback
         self.add_item(self.sort_select)
+
+    async def gen_callback(self, interaction: discord.Interaction):
+        """Handle generation filter selection"""
+        self.generation_filter = self.gen_select.values[0]
+        self.current_page = 0  # Reset to first page
+
+        # Update dropdown to show selected option
+        for option in self.gen_select.options:
+            option.default = (option.value == self.generation_filter)
+
+        await self.update_display(interaction)
 
     async def sort_callback(self, interaction: discord.Interaction):
         """Handle sort selection"""
@@ -3672,13 +3704,19 @@ class PokedexView(View):
         await self.update_display(interaction)
 
     async def load_pokemon(self):
-        """Load Pokemon based on current sort"""
+        """Load Pokemon based on current sort and generation filter"""
         if self.sort_by == 'legendaries':
             self.pokemon_list = await db.get_legendary_pokemon(self.user_id, self.guild_id)
         elif self.sort_by == 'shinies':
             self.pokemon_list = await db.get_shiny_pokemon(self.user_id, self.guild_id)
         else:
             self.pokemon_list = await db.get_pokemon_with_counts(self.user_id, self.guild_id, self.sort_by)
+
+        # Apply generation filter
+        if self.generation_filter == 'gen1':
+            self.pokemon_list = [p for p in self.pokemon_list if 1 <= p['pokemon_id'] <= 151]
+        elif self.generation_filter == 'gen2':
+            self.pokemon_list = [p for p in self.pokemon_list if 152 <= p['pokemon_id'] <= 251]
 
         # Fetch levels for each Pokemon species
         for pokemon in self.pokemon_list:
@@ -3704,9 +3742,20 @@ class PokedexView(View):
         }
         sort_display = sort_names.get(self.sort_by, 'Most Caught')
 
+        # Calculate unique count based on generation filter
+        if self.generation_filter == 'gen1':
+            max_pokemon = 151
+            gen_text = "(Gen 1)"
+        elif self.generation_filter == 'gen2':
+            max_pokemon = 100  # Gen 2 has 100 Pokemon (152-251)
+            gen_text = "(Gen 2)"
+        else:
+            max_pokemon = 251  # Gen 1 + 2
+            gen_text = "(All)"
+
         embed = discord.Embed(
-            title=f"{self.username}'s Pokedex",
-            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/151 ({stats['unique']/151*100:.1f}%)",
+            title=f"{self.username}'s Pokedex {gen_text}",
+            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/{max_pokemon} ({stats['unique']/max_pokemon*100:.1f}%)",
             color=discord.Color.blue()
         )
 
@@ -3716,20 +3765,21 @@ class PokedexView(View):
         page_pokemon = self.pokemon_list[start_idx:end_idx]
 
         if page_pokemon:
-            # Create table header
-            header = " #    Name          Lvl  Qty  Value\n" + "─" * 36
+            # Create table header with gen indicator
+            header = " #    Name        Gen Lvl Qty  Value\n" + "─" * 40
 
             # Create table rows
             pokemon_rows = [header]
             for poke in page_pokemon:
                 pokedex_num = f"{poke['pokemon_id']:03d}"
-                name = poke['pokemon_name'][:12].ljust(12)  # Limit name to 12 chars
+                name = poke['pokemon_name'][:11].ljust(11)  # Limit name to 11 chars for gen column
+                gen = poke_data.get_pokemon_generation(poke['pokemon_id'])
                 level = f"{poke.get('level', 1):<3}"
                 count = f"x{poke['count']:<2}"
                 sell_value = db.calculate_sell_price(poke['pokemon_id'])
                 value = f"{sell_value}💰"
 
-                row = f"{pokedex_num}  {name}  {level}  {count}  {value}"
+                row = f"{pokedex_num}  {name} {gen}  {level} {count}  {value}"
                 pokemon_rows.append(row)
 
             embed.add_field(
@@ -4209,7 +4259,9 @@ async def pack(interaction: discord.Interaction):
     pokemon_list = []
     shiny_caught = False
     legendary_caught = 0
-    legendary_ids = [144, 145, 146, 150, 151]
+    # Gen 1: Articuno, Zapdos, Moltres, Mewtwo, Mew
+    # Gen 2: Raikou, Entei, Suicune, Lugia, Ho-Oh, Celebi
+    legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251]
 
     async with aiohttp.ClientSession() as session:
         for _ in range(pack_size):
@@ -4535,7 +4587,7 @@ class TrainerBattlePokemonSelect(View):
         opponent_level = random.randint(min_level, max_level)
 
         # Pick a random Pokemon for the trainer
-        opponent_pokemon_id = random.randint(1, 151)  # Gen 1 Pokemon
+        opponent_pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
 
         # Generate a random trainer with quote
         trainer = trainer_data.get_random_trainer()
@@ -5353,15 +5405,15 @@ async def wiki(interaction: discord.Interaction, pokemon: str = None):
                 # It's a name
                 identifier = pokemon.lower()
         else:
-            # Random Gen 1 Pokemon
-            identifier = random.randint(1, 151)
+            # Random Gen 1 or Gen 2 Pokemon
+            identifier = random.randint(1, 251)
 
         # Fetch Pokemon species data
         async with aiohttp.ClientSession() as session:
             species_data = await fetch_pokemon_species(session, identifier)
 
         if not species_data:
-            await interaction.followup.send(f"❌ Could not find Pokemon: {pokemon}. Make sure it's a Gen 1 Pokemon!")
+            await interaction.followup.send(f"❌ Could not find Pokemon: {pokemon}. Make sure it's a Gen 1 or Gen 2 Pokemon!")
             return
 
         # Create embed

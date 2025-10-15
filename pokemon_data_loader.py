@@ -161,6 +161,44 @@ def get_pokemon_name(pokemon_id: int) -> str:
     return 'Unknown'
 
 
+def get_pokemon_generation(pokemon_id: int) -> int:
+    """Get Pokemon generation number based on ID"""
+    if 1 <= pokemon_id <= 151:
+        return 1
+    elif 152 <= pokemon_id <= 251:
+        return 2
+    elif 252 <= pokemon_id <= 386:
+        return 3
+    elif 387 <= pokemon_id <= 493:
+        return 4
+    elif 494 <= pokemon_id <= 649:
+        return 5
+    elif 650 <= pokemon_id <= 721:
+        return 6
+    elif 722 <= pokemon_id <= 809:
+        return 7
+    elif 810 <= pokemon_id <= 905:
+        return 8
+    else:
+        return 9
+
+
+def get_generation_range(generation: int) -> tuple:
+    """Get the ID range for a specific generation"""
+    ranges = {
+        1: (1, 151),
+        2: (152, 251),
+        3: (252, 386),
+        4: (387, 493),
+        5: (494, 649),
+        6: (650, 721),
+        7: (722, 809),
+        8: (810, 905),
+        9: (906, 1025)
+    }
+    return ranges.get(generation, (1, 151))
+
+
 def has_local_data() -> bool:
     """Check if local Pokemon data is loaded"""
     return len(POKEMON_DATA) > 0
