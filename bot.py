@@ -3789,8 +3789,12 @@ class PokedexView(View):
 @app_commands.describe(member='The user whose Pokedex you want to view (optional)')
 async def pokedex(interaction: discord.Interaction, member: discord.Member = None):
     """View your or another user's caught Pokemon"""
-    # Defer IMMEDIATELY before any checks
-    await interaction.response.defer()
+    try:
+        # Defer IMMEDIATELY before any checks
+        await interaction.response.defer()
+    except discord.errors.NotFound:
+        # Interaction expired, ignore
+        return
 
     if not interaction.guild:
         await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
