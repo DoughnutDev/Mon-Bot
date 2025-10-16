@@ -257,6 +257,31 @@ async def setup_database():
             except Exception as e:
                 print(f"Migration note: {e}", flush=True)
 
+            # Migration: Update rain_usage table structure (from has_used to last_used_at)
+            try:
+                # Check if old column exists
+                has_old_column = await conn.fetchval('''
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'rain_usage' AND column_name = 'has_used'
+                    )
+                ''')
+
+                if has_old_column:
+                    print("Migrating rain_usage table from has_used to last_used_at...", flush=True)
+                    # Drop old column if it exists
+                    await conn.execute('ALTER TABLE rain_usage DROP COLUMN IF EXISTS has_used')
+                    print("Migration complete: rain_usage.has_used removed", flush=True)
+
+                # Add new column if it doesn't exist
+                await conn.execute('''
+                    ALTER TABLE rain_usage
+                    ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP
+                ''')
+                print("Migration complete: rain_usage.last_used_at added", flush=True)
+            except Exception as e:
+                print(f"Migration note (rain_usage): {e}", flush=True)
+
             print("Database tables created successfully", flush=True)
 
     except Exception as e:
