@@ -833,11 +833,13 @@ async def spawn_command(interaction: discord.Interaction):
 
 # Gym Leader Selection View
 class GymSelectView(View):
-    def __init__(self, user: discord.Member, guild_id: int, user_badges: list):
+    def __init__(self, user: discord.Member, guild_id: int, user_pokemon: list, user_badges: list, region: str = 'kanto'):
         super().__init__(timeout=300)
         self.user = user
         self.guild_id = guild_id
+        self.user_pokemon = user_pokemon
         self.user_badges = user_badges
+        self.region = region
 
         # Create dropdown for gym selection
         self.gym_select = Select(
@@ -846,8 +848,10 @@ class GymSelectView(View):
             max_values=1
         )
 
-        # Add gym leaders as options
-        for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+        # Add gym leaders as options based on region
+        gym_list = gym_leaders.get_all_gym_leaders() if region == 'kanto' else gym_leaders.get_all_gym_leaders_johto()
+
+        for gym_key, gym_data in gym_list:
             has_badge = gym_key in user_badges
             label = f"{'✅' if has_badge else '⭕'} {gym_data['name']} ({gym_data['type']})"
             description = f"{gym_data['location']} - {'⭐' * gym_data['difficulty']}"
@@ -860,6 +864,23 @@ class GymSelectView(View):
 
         self.gym_select.callback = self.gym_selected
         self.add_item(self.gym_select)
+
+    def create_embed(self):
+        """Create the gym selection embed"""
+        region_name = "Kanto" if self.region == 'kanto' else "Johto"
+        region_emoji = "🗾" if self.region == 'kanto' else "🌸"
+
+        # Count badges for this region
+        gym_list = gym_leaders.get_all_gym_leaders() if self.region == 'kanto' else gym_leaders.get_all_gym_leaders_johto()
+        region_badges = sum(1 for gym_key, _ in gym_list if gym_key in self.user_badges)
+
+        embed = discord.Embed(
+            title=f"{region_emoji} {region_name} Gym Leaders",
+            description=f"**{self.user.display_name}** | {region_name} Badges: **{region_badges}/8**\n\nSelect a gym leader to challenge!",
+            color=discord.Color.gold() if region_badges == 8 else discord.Color.blue()
+        )
+
+        return embed
 
     async def gym_selected(self, interaction: discord.Interaction):
         """Handle gym leader selection"""
@@ -878,23 +899,8 @@ class GymSelectView(View):
             # Just add a note, don't prevent the challenge
             pass
 
-        # Load user's Pokemon
-        user_pokemon = await db.get_user_pokemon_for_trade(self.user.id, self.guild_id)
-
-        if not user_pokemon:
-            await interaction.followup.send(f"❌ You don't have any Pokemon to battle with!", ephemeral=True)
-            return
-
-        # Get all levels in one batch query
-        pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
-        level_dict = await db.get_multiple_species_levels(self.user.id, self.guild_id, pokemon_ids)
-
-        # Add levels to Pokemon and sort
-        pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
-        pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
-
         # Create gym battle view (now handles Pokemon selection internally with pagination)
-        gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, pokemon_with_levels, gym_key in self.user_badges)
+        gym_battle_view = GymBattleView(self.user, self.guild_id, gym_key, gym_data, self.user_pokemon, gym_key in self.user_badges)
 
         # Delete the gym selection message
         await interaction.delete_original_response()
@@ -4992,7 +4998,13 @@ async def trainer(interaction: discord.Interaction):
 
 
 @bot.tree.command(name='badges', description='View your gym badge collection!')
-async def badges(interaction: discord.Interaction):
+@app_commands.describe(region='Choose which region to view (optional - shows both if not specified)')
+@app_commands.choices(region=[
+    app_commands.Choice(name='Kanto (Gen 1)', value='kanto'),
+    app_commands.Choice(name='Johto (Gen 2)', value='johto'),
+    app_commands.Choice(name='Both Regions', value='both'),
+])
+async def badges(interaction: discord.Interaction, region: str = 'both'):
     """Display user's gym badge collection"""
     # Defer immediately to prevent timeout
     await interaction.response.defer()
@@ -5003,74 +5015,122 @@ async def badges(interaction: discord.Interaction):
 
     # Get user's badges
     user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
-    badge_count = len(user_badges)
 
-    # Create embed
-    embed = discord.Embed(
-        title=f"🏆 {interaction.user.display_name}'s Badge Case",
-        description=f"**Badges Collected: {badge_count}/8**\n\nCollect all 8 Kanto Gym Badges to become a Pokemon Master!",
-        color=discord.Color.gold() if badge_count == 8 else discord.Color.blue()
-    )
+    # Count badges by region
+    kanto_gym_list = gym_leaders.get_all_gym_leaders()
+    johto_gym_list = gym_leaders.get_all_gym_leaders_johto()
+    kanto_badge_count = sum(1 for gym_key, _ in kanto_gym_list if gym_key in user_badges)
+    johto_badge_count = sum(1 for gym_key, _ in johto_gym_list if gym_key in user_badges)
+    total_badges = kanto_badge_count + johto_badge_count
 
-    # Add each gym's badge status as a compact list
-    badge_list = []
-    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
-        has_badge = gym_key in user_badges
+    # Create embed based on region choice
+    if region == 'both':
+        embed = discord.Embed(
+            title=f"🏆 {interaction.user.display_name}'s Badge Case",
+            description=f"**Total Badges: {total_badges}/16**\n**Kanto:** {kanto_badge_count}/8 | **Johto:** {johto_badge_count}/8",
+            color=discord.Color.gold() if total_badges == 16 else discord.Color.blue()
+        )
 
-        if has_badge:
-            status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}"
+        # Add Kanto badges
+        kanto_badges = []
+        for gym_key, gym_data in kanto_gym_list:
+            has_badge = gym_key in user_badges
+            status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}**" if has_badge else f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~"
+            kanto_badges.append(status)
+
+        embed.add_field(
+            name="🗾 Kanto Region",
+            value="\n".join(kanto_badges),
+            inline=True
+        )
+
+        # Add Johto badges
+        johto_badges = []
+        for gym_key, gym_data in johto_gym_list:
+            has_badge = gym_key in user_badges
+            status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}**" if has_badge else f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~"
+            johto_badges.append(status)
+
+        embed.add_field(
+            name="🌸 Johto Region",
+            value="\n".join(johto_badges),
+            inline=True
+        )
+
+        if total_badges == 16:
+            embed.set_footer(text="🎉 All badges collected! You are a Pokemon Master!")
         else:
-            status = f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~ - {gym_data['name']}"
+            embed.set_footer(text=f"Use /gym to challenge gym leaders! ({16 - total_badges} remaining)")
 
-        badge_list.append(status)
+    elif region == 'kanto':
+        embed = discord.Embed(
+            title=f"🗾 {interaction.user.display_name}'s Kanto Badges",
+            description=f"**Badges Collected: {kanto_badge_count}/8**",
+            color=discord.Color.gold() if kanto_badge_count == 8 else discord.Color.blue()
+        )
 
-    # Split into two columns for better layout
-    half = len(badge_list) // 2
-    embed.add_field(
-        name="Kanto Badges (Part 1)",
-        value="\n".join(badge_list[:half]),
-        inline=True
-    )
-    embed.add_field(
-        name="Kanto Badges (Part 2)",
-        value="\n".join(badge_list[half:]),
-        inline=True
-    )
+        kanto_badges = []
+        for gym_key, gym_data in kanto_gym_list:
+            has_badge = gym_key in user_badges
+            if has_badge:
+                status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}"
+            else:
+                status = f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~ - {gym_data['name']}"
+            kanto_badges.append(status)
 
-    # Set the first earned badge as thumbnail, or the first badge icon if none earned
+        embed.add_field(
+            name="Kanto Gym Badges",
+            value="\n".join(kanto_badges),
+            inline=False
+        )
+
+        if kanto_badge_count == 8:
+            embed.set_footer(text="🎉 All Kanto badges collected!")
+        else:
+            embed.set_footer(text=f"Use /gym region:kanto to challenge Kanto leaders! ({8 - kanto_badge_count} remaining)")
+
+    else:  # johto
+        embed = discord.Embed(
+            title=f"🌸 {interaction.user.display_name}'s Johto Badges",
+            description=f"**Badges Collected: {johto_badge_count}/8**",
+            color=discord.Color.gold() if johto_badge_count == 8 else discord.Color.blue()
+        )
+
+        johto_badges = []
+        for gym_key, gym_data in johto_gym_list:
+            has_badge = gym_key in user_badges
+            if has_badge:
+                status = f"✅ {gym_data['badge_emoji']} **{gym_data['badge']}** - {gym_data['name']}"
+            else:
+                status = f"⭕ {gym_data['badge_emoji']} ~~{gym_data['badge']}~~ - {gym_data['name']}"
+            johto_badges.append(status)
+
+        embed.add_field(
+            name="Johto Gym Badges",
+            value="\n".join(johto_badges),
+            inline=False
+        )
+
+        if johto_badge_count == 8:
+            embed.set_footer(text="🎉 All Johto badges collected!")
+        else:
+            embed.set_footer(text=f"Use /gym region:johto to challenge Johto leaders! ({8 - johto_badge_count} remaining)")
+
+    # Set thumbnail (first earned badge or default)
     first_badge = None
-    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
+    for gym_key, gym_data in kanto_gym_list:
         if gym_key in user_badges:
             first_badge = gym_data['badge_icon']
             break
-
     if not first_badge:
-        # Show first badge icon even if not earned
+        for gym_key, gym_data in johto_gym_list:
+            if gym_key in user_badges:
+                first_badge = gym_data['badge_icon']
+                break
+    if not first_badge:
         first_badge = gym_leaders.get_gym_leader('brock')['badge_icon']
 
     embed.set_thumbnail(url=first_badge)
-
-    if badge_count == 8:
-        embed.add_field(
-            name="🎉 Congratulations!",
-            value="You've collected all 8 Kanto Gym Badges! You are a true Pokemon Master!",
-            inline=False
-        )
-    elif badge_count == 0:
-        embed.add_field(
-            name="💪 Getting Started",
-            value="Use `/gym` to challenge gym leaders and start earning badges!",
-            inline=False
-        )
-    else:
-        remaining = 8 - badge_count
-        embed.add_field(
-            name=f"📍 {remaining} badge{' remains' if remaining == 1 else 's remain'}",
-            value="Keep challenging gym leaders to complete your collection!",
-            inline=False
-        )
-
-    embed.set_footer(text="Use /gym to challenge gym leaders!")
 
     await interaction.followup.send(embed=embed)
 
@@ -5203,8 +5263,13 @@ async def shinyleaderboard(interaction: discord.Interaction):
 
 
 @bot.tree.command(name='gym', description='Challenge Gym Leaders and earn badges!')
-async def gym(interaction: discord.Interaction):
-    """Challenge gym leaders in any order"""
+@app_commands.describe(region='Choose which region to challenge')
+@app_commands.choices(region=[
+    app_commands.Choice(name='Kanto (Gen 1)', value='kanto'),
+    app_commands.Choice(name='Johto (Gen 2)', value='johto'),
+])
+async def gym(interaction: discord.Interaction, region: str):
+    """Challenge gym leaders from a specific region"""
     # Defer immediately to prevent timeout
     await interaction.response.defer()
 
@@ -5214,40 +5279,129 @@ async def gym(interaction: discord.Interaction):
 
     # Get user's badges
     user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
-    badge_count = len(user_badges)
 
-    # Create gym selection view
-    view = GymSelectView(interaction.user, interaction.guild.id, user_badges)
+    # Load user's Pokemon
+    user_pokemon = await db.get_user_pokemon_for_trade(interaction.user.id, interaction.guild.id)
 
-    # Create embed showing gym leaders
-    embed = discord.Embed(
-        title="🏟️ Kanto Gym Leaders",
-        description=f"**{interaction.user.display_name}** | Badges: **{badge_count}/8**\n\nChallenge any gym leader in any order!",
-        color=discord.Color.gold()
-    )
+    if not user_pokemon:
+        await interaction.followup.send(f"❌ You don't have any Pokemon to battle with!", ephemeral=True)
+        return
 
-    # Add gym leaders to embed
-    for gym_key, gym_data in gym_leaders.get_all_gym_leaders():
-        has_badge = gym_key in user_badges
-        badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+    # Get all levels in one batch query
+    pokemon_ids = [p['pokemon_id'] for p in user_pokemon]
+    level_dict = await db.get_multiple_species_levels(interaction.user.id, interaction.guild.id, pokemon_ids)
 
-        value = f"**Type:** {gym_data['type']}\n"
-        value += f"**Location:** {gym_data['location']}\n"
-        value += f"**Difficulty:** {'⭐' * gym_data['difficulty']}\n"
-        value += f"**Rewards:** ₽{gym_data['rewards']['pokedollars']} | {gym_data['rewards']['pack']}"
+    # Add levels to Pokemon
+    pokemon_with_levels = [{**p, 'level': level_dict.get(p['pokemon_id'], 1)} for p in user_pokemon]
+    pokemon_with_levels.sort(key=lambda p: p['level'], reverse=True)
 
-        if has_badge:
-            value += f"\n✅ **Defeated!**"
+    # Create gym selection view for the chosen region
+    view = GymSelectView(interaction.user, interaction.guild.id, pokemon_with_levels, user_badges, region)
+    embed = view.create_embed()
+    await interaction.followup.send(embed=embed, view=view)
 
-        embed.add_field(
-            name=f"{badge_indicator} {gym_data['name']} - {gym_data['title']}",
-            value=value,
-            inline=False
+
+@bot.tree.command(name='gyms', description='View all available Gym Leaders')
+@app_commands.describe(region='Choose which region to view (optional - shows both if not specified)')
+@app_commands.choices(region=[
+    app_commands.Choice(name='Kanto (Gen 1)', value='kanto'),
+    app_commands.Choice(name='Johto (Gen 2)', value='johto'),
+    app_commands.Choice(name='Both Regions', value='both'),
+])
+async def gyms(interaction: discord.Interaction, region: str = 'both'):
+    """View all gym leaders across regions"""
+    # Defer immediately to prevent timeout
+    await interaction.response.defer()
+
+    if not interaction.guild:
+        await interaction.followup.send("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Get user's badges
+    user_badges = await db.get_user_badges(interaction.user.id, interaction.guild.id)
+
+    # Count badges by region
+    kanto_gym_list = gym_leaders.get_all_gym_leaders()
+    johto_gym_list = gym_leaders.get_all_gym_leaders_johto()
+    kanto_badge_count = sum(1 for gym_key, _ in kanto_gym_list if gym_key in user_badges)
+    johto_badge_count = sum(1 for gym_key, _ in johto_gym_list if gym_key in user_badges)
+    total_badges = kanto_badge_count + johto_badge_count
+
+    # Create embed based on region
+    if region == 'both':
+        embed = discord.Embed(
+            title="🏟️ Pokemon Gym Leaders",
+            description=f"**{interaction.user.display_name}** | Total: **{total_badges}/16** (Kanto: {kanto_badge_count}/8, Johto: {johto_badge_count}/8)\n\nUse `/gym region:<region>` to challenge gym leaders!",
+            color=discord.Color.gold() if total_badges == 16 else discord.Color.blue()
         )
 
-    embed.set_footer(text="Select a gym leader below to challenge them!")
+        # Add Kanto gym leaders
+        kanto_list = []
+        for gym_key, gym_data in kanto_gym_list:
+            has_badge = gym_key in user_badges
+            badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+            status = "✅" if has_badge else "❌"
+            kanto_list.append(f"{badge_indicator} **{gym_data['name']}** ({gym_data['type'].title()}) {status}")
 
-    await interaction.followup.send(embed=embed, view=view)
+        embed.add_field(
+            name="🗾 Kanto Region",
+            value="\n".join(kanto_list),
+            inline=True
+        )
+
+        # Add Johto gym leaders
+        johto_list = []
+        for gym_key, gym_data in johto_gym_list:
+            has_badge = gym_key in user_badges
+            badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+            status = "✅" if has_badge else "❌"
+            johto_list.append(f"{badge_indicator} **{gym_data['name']}** ({gym_data['type'].title()}) {status}")
+
+        embed.add_field(
+            name="🌸 Johto Region",
+            value="\n".join(johto_list),
+            inline=True
+        )
+
+    elif region == 'kanto':
+        embed = discord.Embed(
+            title="🗾 Kanto Gym Leaders",
+            description=f"**{interaction.user.display_name}** | Badges: **{kanto_badge_count}/8**\n\nUse `/gym region:kanto` to challenge!",
+            color=discord.Color.gold() if kanto_badge_count == 8 else discord.Color.blue()
+        )
+
+        for gym_key, gym_data in kanto_gym_list:
+            has_badge = gym_key in user_badges
+            badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+            status = "✅ Defeated" if has_badge else "❌ Not defeated"
+
+            embed.add_field(
+                name=f"{badge_indicator} {gym_data['name']} - {gym_data['title']}",
+                value=f"**Type:** {gym_data['type'].title()}\n**Location:** {gym_data['location']}\n**Difficulty:** {'⭐' * gym_data['difficulty']}\n**Status:** {status}",
+                inline=True
+            )
+
+    else:  # johto
+        embed = discord.Embed(
+            title="🌸 Johto Gym Leaders",
+            description=f"**{interaction.user.display_name}** | Badges: **{johto_badge_count}/8**\n\nUse `/gym region:johto` to challenge!",
+            color=discord.Color.gold() if johto_badge_count == 8 else discord.Color.blue()
+        )
+
+        for gym_key, gym_data in johto_gym_list:
+            has_badge = gym_key in user_badges
+            badge_indicator = gym_data['badge_emoji'] if has_badge else "⭕"
+            status = "✅ Defeated" if has_badge else "❌ Not defeated"
+
+            embed.add_field(
+                name=f"{badge_indicator} {gym_data['name']} - {gym_data['title']}",
+                value=f"**Type:** {gym_data['type'].title()}\n**Location:** {gym_data['location']}\n**Difficulty:** {'⭐' * gym_data['difficulty']}\n**Status:** {status}",
+                inline=True
+            )
+
+    embed.set_footer(text="Challenge gym leaders to earn badges and rewards!")
+
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name='trade', description='Trade Pokemon with another user')
