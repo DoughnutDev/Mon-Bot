@@ -111,6 +111,24 @@ QUEST_TYPES = {
             {'target': 2, 'reward': 90, 'description': 'Catch 2 Ice-type Pokemon'},
         ]
     },
+    'catch_dark': {
+        'variants': [
+            {'target': 1, 'reward': 50, 'description': 'Catch a Dark-type Pokemon'},
+            {'target': 2, 'reward': 90, 'description': 'Catch 2 Dark-type Pokemon'},
+        ]
+    },
+    'catch_steel': {
+        'variants': [
+            {'target': 1, 'reward': 50, 'description': 'Catch a Steel-type Pokemon'},
+            {'target': 2, 'reward': 90, 'description': 'Catch 2 Steel-type Pokemon'},
+        ]
+    },
+    'catch_fairy': {
+        'variants': [
+            {'target': 1, 'reward': 50, 'description': 'Catch a Fairy-type Pokemon'},
+            {'target': 2, 'reward': 90, 'description': 'Catch 2 Fairy-type Pokemon'},
+        ]
+    },
 
     # Unique/Variety Pokemon quests
     'catch_unique': {
@@ -129,13 +147,29 @@ QUEST_TYPES = {
     },
     'catch_starter': {
         'variants': [
-            {'target': 1, 'reward': 60, 'description': 'Catch a starter Pokemon (Bulbasaur, Charmander, Squirtle)'},
+            {'target': 1, 'reward': 60, 'description': 'Catch a starter Pokemon (Bulbasaur, Charmander, Squirtle, Chikorita, Cyndaquil, Totodile)'},
         ]
     },
     'catch_evolved': {
         'variants': [
             {'target': 2, 'reward': 70, 'description': 'Catch 2 evolved Pokemon'},
             {'target': 3, 'reward': 100, 'description': 'Catch 3 evolved Pokemon'},
+        ]
+    },
+    'catch_shiny': {
+        'variants': [
+            {'target': 1, 'reward': 500, 'description': 'Catch a shiny Pokemon'},
+        ]
+    },
+    'use_rain': {
+        'variants': [
+            {'target': 1, 'reward': 100, 'description': 'Start a rain event with /rain'},
+        ]
+    },
+    'catch_during_rain': {
+        'variants': [
+            {'target': 5, 'reward': 80, 'description': 'Catch 5 Pokemon during a rain event'},
+            {'target': 10, 'reward': 150, 'description': 'Catch 10 Pokemon during a rain event'},
         ]
     },
 
@@ -178,6 +212,23 @@ QUEST_TYPES = {
     'defeat_gym_leader': {
         'variants': [
             {'target': 1, 'reward': 150, 'description': 'Defeat a gym leader'},
+        ]
+    },
+    'earn_kanto_badge': {
+        'variants': [
+            {'target': 1, 'reward': 150, 'description': 'Earn a Kanto gym badge'},
+        ]
+    },
+    'earn_johto_badge': {
+        'variants': [
+            {'target': 1, 'reward': 150, 'description': 'Earn a Johto gym badge'},
+        ]
+    },
+    'collect_badges': {
+        'variants': [
+            {'target': 3, 'reward': 200, 'description': 'Collect 3 total gym badges'},
+            {'target': 5, 'reward': 350, 'description': 'Collect 5 total gym badges'},
+            {'target': 8, 'reward': 500, 'description': 'Collect 8 total gym badges'},
         ]
     },
 

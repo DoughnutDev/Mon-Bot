@@ -594,8 +594,10 @@ async def on_message(message):
                         quest_result['total_currency'] += legendary_quest_result['total_currency']
                         quest_result['completed_quests'].extend(legendary_quest_result['completed_quests'])
 
-            # Check for starter Pokemon (IDs 1-9: Bulbasaur line, Charmander line, Squirtle line)
-            starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            # Check for starter Pokemon
+            # Gen 1: Bulbasaur (1), Charmander (4), Squirtle (7) and evolutions
+            # Gen 2: Chikorita (152), Cyndaquil (155), Totodile (158) and evolutions
+            starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 152, 153, 154, 155, 156, 157, 158, 159, 160]
             if pokemon['id'] in starter_ids:
                 starter_quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_starter')
                 if starter_quest_result and starter_quest_result.get('completed_quests'):
@@ -604,6 +606,26 @@ async def on_message(message):
                     else:
                         quest_result['total_currency'] += starter_quest_result['total_currency']
                         quest_result['completed_quests'].extend(starter_quest_result['completed_quests'])
+
+            # Check if caught shiny Pokemon
+            if is_shiny:
+                shiny_quest_result = await db.update_quest_progress(user_id, guild_id, 'catch_shiny')
+                if shiny_quest_result and shiny_quest_result.get('completed_quests'):
+                    if not quest_result:
+                        quest_result = shiny_quest_result
+                    else:
+                        quest_result['total_currency'] += shiny_quest_result['total_currency']
+                        quest_result['completed_quests'].extend(shiny_quest_result['completed_quests'])
+
+            # Check if caught during rain event
+            if channel_id in active_rains:
+                rain_catch_result = await db.update_quest_progress(user_id, guild_id, 'catch_during_rain')
+                if rain_catch_result and rain_catch_result.get('completed_quests'):
+                    if not quest_result:
+                        quest_result = rain_catch_result
+                    else:
+                        quest_result['total_currency'] += rain_catch_result['total_currency']
+                        quest_result['completed_quests'].extend(rain_catch_result['completed_quests'])
 
             # Check for type-specific quests
             pokemon_types = pokemon['types']  # Types from the spawned Pokemon
@@ -952,6 +974,9 @@ async def rain_command(interaction: discord.Interaction):
         'start_time': datetime.now(),
         'guild_id': guild_id
     }
+
+    # Update quest progress for using rain
+    await db.update_quest_progress(user_id, guild_id, 'use_rain')
 
     # Announce rain start
     rain_embed = discord.Embed(
