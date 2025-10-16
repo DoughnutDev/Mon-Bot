@@ -43,6 +43,7 @@ active_spawns = {}  # {channel_id: {'pokemon': pokemon_data, 'spawn_time': datet
 active_trainer_battles = {}  # {user_id: {'trainer': trainer_data, 'pokemon': wild_pokemon, 'channel_id': channel_id}}
 last_guild_spawn = {}  # {guild_id: datetime} - Track last spawn per guild to guarantee max spawn interval
 recent_catches = {}  # {channel_id: {'message': catch_message, 'timestamp': datetime}} - Track recent catches for laugh reactions
+active_rains = {}  # {channel_id: {'user_id': user_id, 'start_time': datetime, 'guild_id': guild_id}} - Track active rain events
 
 
 async def fetch_pokemon(session, pokemon_id=None):
@@ -332,6 +333,33 @@ async def on_message(message):
     if message.content.lower() == 'ball':
         channel_id = str(message.channel.id)
 
+        # Check if rain event is active and no spawn exists - spawn instantly during rain
+        if channel_id in active_rains and channel_id not in active_spawns:
+            # Spawn a Pokemon instantly during rain
+            try:
+                async with aiohttp.ClientSession() as session:
+                    pokemon = await fetch_pokemon(session)
+
+                if pokemon:
+                    # Store active spawn with timestamp
+                    spawn_time = datetime.now()
+                    active_spawns[channel_id] = {
+                        'pokemon': pokemon,
+                        'spawn_time': spawn_time
+                    }
+
+                    # Send spawn message
+                    embed = create_spawn_embed(pokemon)
+                    await message.channel.send(embed=embed)
+
+                    print(f"Rain spawned {pokemon['name']} in {message.guild.name}#{message.channel.name}")
+
+                    # Don't process the catch yet - let the user type "ball" again
+                    return
+            except Exception as e:
+                print(f"Error spawning Pokemon during rain: {e}")
+                return
+
         if channel_id in active_spawns:
             # Remove spawn immediately to prevent race condition (first come first serve)
             spawn_data = active_spawns.pop(channel_id)
@@ -356,8 +384,8 @@ async def on_message(message):
             if is_shiny:
                 pokemon['sprite'] = poke_data.get_pokemon_sprite(pokemon['id'], shiny=True)
 
-            # 15% chance for a trainer to appear and claim the Pokemon
-            if random.random() < 0.15:
+            # 15% chance for a trainer to appear and claim the Pokemon (but not during rain events)
+            if channel_id not in active_rains and random.random() < 0.15:
                 # Get a random trainer
                 trainer = trainer_data.get_random_trainer()
 
@@ -576,10 +604,13 @@ async def on_message(message):
 
             # Check for type-specific quests
             pokemon_types = pokemon['types']  # Types from the spawned Pokemon
+            print(f"[DEBUG] Caught {pokemon['name']} with types: {pokemon_types}")
             for poke_type in pokemon_types:
                 type_lower = poke_type.lower()
                 quest_type = f'catch_{type_lower}'
+                print(f"[DEBUG] Updating quest progress for type: {quest_type}")
                 type_quest_result = await db.update_quest_progress(user_id, guild_id, quest_type)
+                print(f"[DEBUG] Quest result: {type_quest_result}")
                 if type_quest_result and type_quest_result.get('completed_quests'):
                     if not quest_result:
                         quest_result = type_quest_result
@@ -603,6 +634,28 @@ async def on_message(message):
                 'timestamp': datetime.now(),
                 'catcher_id': user_id
             }
+
+            # If rain event is active, spawn a new Pokemon instantly
+            if channel_id in active_rains:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        new_pokemon = await fetch_pokemon(session)
+
+                    if new_pokemon:
+                        # Store new active spawn with timestamp
+                        spawn_time = datetime.now()
+                        active_spawns[channel_id] = {
+                            'pokemon': new_pokemon,
+                            'spawn_time': spawn_time
+                        }
+
+                        # Send spawn message
+                        spawn_embed = create_spawn_embed(new_pokemon)
+                        await message.channel.send(embed=spawn_embed)
+
+                        print(f"Rain spawned {new_pokemon['name']} after catch in {message.guild.name}#{message.channel.name}")
+                except Exception as e:
+                    print(f"Error spawning Pokemon during rain after catch: {e}")
 
             # If quests were completed, notify user
             if quest_result and quest_result.get('completed_quests'):
@@ -829,6 +882,109 @@ async def spawn_command(interaction: discord.Interaction):
             ephemeral=True
         )
         print(f"Error in spawn command: {e}")
+
+
+@bot.tree.command(name='rain', description='Start a 2-minute Pokemon rain event! (48h cooldown)')
+async def rain_command(interaction: discord.Interaction):
+    """Start a rain event that spawns Pokemon rapidly for 2 minutes"""
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
+        return
+
+    # Defer immediately
+    await interaction.response.defer()
+
+    user_id = interaction.user.id
+    guild_id = interaction.guild.id
+    channel_id = str(interaction.channel.id)
+
+    # Check if there's already a rain event in this channel
+    if channel_id in active_rains:
+        rain_data = active_rains[channel_id]
+        elapsed = (datetime.now() - rain_data['start_time']).total_seconds()
+        remaining = max(0, 120 - elapsed)  # 120 seconds = 2 minutes
+
+        await interaction.followup.send(
+            f"⛈️ There's already a rain event active in this channel!\n"
+            f"⏱️ Time remaining: **{int(remaining)}** seconds",
+            ephemeral=True
+        )
+        return
+
+    # Check cooldown
+    cooldown = await db.check_rain_cooldown(user_id, guild_id)
+
+    if not cooldown['can_use']:
+        seconds = cooldown['seconds_until_reset']
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+
+        time_str = ""
+        if hours > 0:
+            time_str += f"{hours}h "
+        if minutes > 0:
+            time_str += f"{minutes}m "
+        if secs > 0 or not time_str:
+            time_str += f"{secs}s"
+
+        await interaction.followup.send(
+            f"⏳ You're on cooldown! You can use `/rain` again in **{time_str.strip()}**",
+            ephemeral=True
+        )
+        return
+
+    # Use rain
+    success = await db.use_rain(user_id, guild_id)
+    if not success:
+        await interaction.followup.send(
+            "❌ Failed to start rain event. Please try again!",
+            ephemeral=True
+        )
+        return
+
+    # Start rain event
+    active_rains[channel_id] = {
+        'user_id': user_id,
+        'start_time': datetime.now(),
+        'guild_id': guild_id
+    }
+
+    # Announce rain start
+    rain_embed = discord.Embed(
+        title="⛈️ Pokemon Rain Event Started!",
+        description=f"**{interaction.user.display_name}** has started a rain event!\n\n"
+                    f"🌧️ Pokemon will spawn rapidly for the next **2 minutes**!\n"
+                    f"⚡ Type `ball` to catch Pokemon as they appear!\n"
+                    f"👥 Multiple people can catch during this event!",
+        color=discord.Color.blue()
+    )
+    rain_embed.set_footer(text="The rain will automatically stop after 2 minutes")
+
+    await interaction.followup.send(embed=rain_embed)
+    print(f"Rain event started by {interaction.user.display_name} in {interaction.guild.name}#{interaction.channel.name}")
+
+    # Schedule rain end after 2 minutes (120 seconds)
+    await asyncio.sleep(120)
+
+    # Check if rain is still active (in case it was manually cleared)
+    if channel_id in active_rains:
+        del active_rains[channel_id]
+
+        # Announce rain end
+        end_embed = discord.Embed(
+            title="🌤️ Rain Event Ended",
+            description="The rain has stopped! Pokemon spawns have returned to normal.",
+            color=discord.Color.green()
+        )
+
+        try:
+            channel = bot.get_channel(interaction.channel.id)
+            if channel:
+                await channel.send(embed=end_embed)
+                print(f"Rain event ended in {interaction.guild.name}#{interaction.channel.name}")
+        except Exception as e:
+            print(f"Error sending rain end message: {e}")
 
 
 # Gym Leader Selection View

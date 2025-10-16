@@ -177,13 +177,12 @@ async def setup_database():
                 )
             ''')
 
-            # Rain usage tracking table (one-time use per user)
+            # Rain usage tracking table (48-hour cooldown per user)
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS rain_usage (
                     user_id BIGINT NOT NULL,
                     guild_id BIGINT NOT NULL,
-                    has_used BOOLEAN DEFAULT FALSE,
-                    used_at TIMESTAMP,
+                    last_used_at TIMESTAMP,
                     PRIMARY KEY (user_id, guild_id)
                 )
             ''')
@@ -1175,16 +1174,16 @@ async def get_daily_quests(user_id: int, guild_id: int) -> Optional[Dict]:
     """Get user's daily quests for today"""
     if not pool:
         return None
-    
+
     from datetime import date
     today = date.today()
-    
+
     async with pool.acquire() as conn:
         quests = await conn.fetchrow('''
             SELECT * FROM daily_quests
             WHERE user_id = $1 AND guild_id = $2 AND quest_date = $3
         ''', user_id, guild_id, today)
-        
+
         return dict(quests) if quests else None
 
 
@@ -1192,10 +1191,10 @@ async def create_daily_quests(user_id: int, guild_id: int, quests: List[Dict]) -
     """Create daily quests for a user"""
     if not pool:
         return False
-    
+
     from datetime import date
     today = date.today()
-    
+
     async with pool.acquire() as conn:
         await conn.execute('''
             INSERT INTO daily_quests (
@@ -1210,7 +1209,7 @@ async def create_daily_quests(user_id: int, guild_id: int, quests: List[Dict]) -
              quests[0]['type'], quests[0]['target'], quests[0]['reward'],
              quests[1]['type'], quests[1]['target'], quests[1]['reward'],
              quests[2]['type'], quests[2]['target'], quests[2]['reward'])
-        
+
         return True
 
 
@@ -1218,23 +1217,23 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
     """Update progress for quests of a specific type and check for completion"""
     if not pool:
         return None
-    
+
     from datetime import date
     today = date.today()
-    
+
     async with pool.acquire() as conn:
         # Get current quests
         quests = await conn.fetchrow('''
             SELECT * FROM daily_quests
             WHERE user_id = $1 AND guild_id = $2 AND quest_date = $3
         ''', user_id, guild_id, today)
-        
+
         if not quests:
             return None
-        
+
         completed_quests = []
         total_xp_earned = 0
-        
+
         # Check each quest
         for i in range(1, 4):
             q_type = quests[f'quest_{i}_type']
@@ -1242,11 +1241,11 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
             q_progress = quests[f'quest_{i}_progress']
             q_completed = quests[f'quest_{i}_completed']
             q_reward = quests[f'quest_{i}_reward']
-            
+
             # Update matching quest types that aren't completed
             if q_type == quest_type and not q_completed:
                 new_progress = q_progress + increment
-                
+
                 # Check if quest is now completed
                 if new_progress >= q_target:
                     await conn.execute(f'''
@@ -1254,7 +1253,7 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
                         SET quest_{i}_progress = $1, quest_{i}_completed = TRUE
                         WHERE user_id = $2 AND guild_id = $3 AND quest_date = $4
                     ''', q_target, user_id, guild_id, today)
-                    
+
                     completed_quests.append({
                         'description': f'Quest {i}',
                         'reward': q_reward
@@ -1267,7 +1266,7 @@ async def update_quest_progress(user_id: int, guild_id: int, quest_type: str, in
                         SET quest_{i}_progress = $1
                         WHERE user_id = $2 AND guild_id = $3 AND quest_date = $4
                     ''', new_progress, user_id, guild_id, today)
-        
+
         if completed_quests:
             return {
                 'completed_quests': completed_quests,
@@ -1598,3 +1597,64 @@ async def reset_trainer_cooldown(user_id: int, guild_id: int):
             SET battles_used = 0, cooldown_reset = $3
             WHERE user_id = $1 AND guild_id = $2
         ''', user_id, guild_id, datetime.now())
+
+
+# Rain event functions
+
+async def check_rain_cooldown(user_id: int, guild_id: int) -> Dict:
+    """Check if user can start a rain event. Returns can_use and seconds_until_reset."""
+    if not pool:
+        return {'can_use': False, 'seconds_until_reset': 0}
+
+    from datetime import datetime, timedelta
+
+    async with pool.acquire() as conn:
+        # Get or create rain usage entry
+        rain = await conn.fetchrow('''
+            INSERT INTO rain_usage (user_id, guild_id, last_used_at)
+            VALUES ($1, $2, NULL)
+            ON CONFLICT (user_id, guild_id)
+            DO UPDATE SET user_id = rain_usage.user_id
+            RETURNING last_used_at
+        ''', user_id, guild_id)
+
+        # If never used, can use
+        if not rain or not rain['last_used_at']:
+            return {'can_use': True, 'seconds_until_reset': 0}
+
+        now = datetime.now()
+        last_used = rain['last_used_at']
+
+        # Check if 48 hours have passed
+        if now >= last_used + timedelta(hours=48):
+            return {'can_use': True, 'seconds_until_reset': 0}
+
+        # Calculate time remaining
+        time_until_reset = (last_used + timedelta(hours=48)) - now
+        seconds_until_reset = int(time_until_reset.total_seconds())
+
+        return {
+            'can_use': False,
+            'seconds_until_reset': max(0, seconds_until_reset)
+        }
+
+
+async def use_rain(user_id: int, guild_id: int) -> bool:
+    """Mark rain as used. Returns True if successful, False if on cooldown."""
+    if not pool:
+        return False
+
+    from datetime import datetime
+
+    cooldown = await check_rain_cooldown(user_id, guild_id)
+    if not cooldown['can_use']:
+        return False
+
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            UPDATE rain_usage
+            SET last_used_at = $3
+            WHERE user_id = $1 AND guild_id = $2
+        ''', user_id, guild_id, datetime.now())
+
+        return True
