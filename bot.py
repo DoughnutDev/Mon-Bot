@@ -337,6 +337,9 @@ async def on_message(message):
         if channel_id in active_rains and channel_id not in active_spawns:
             # Spawn a Pokemon instantly during rain
             try:
+                # Add 1 second delay to avoid Discord rate limits (5 messages per 5 seconds)
+                await asyncio.sleep(1)
+
                 async with aiohttp.ClientSession() as session:
                     pokemon = await fetch_pokemon(session)
 
@@ -604,13 +607,10 @@ async def on_message(message):
 
             # Check for type-specific quests
             pokemon_types = pokemon['types']  # Types from the spawned Pokemon
-            print(f"[DEBUG] Caught {pokemon['name']} with types: {pokemon_types}")
             for poke_type in pokemon_types:
                 type_lower = poke_type.lower()
                 quest_type = f'catch_{type_lower}'
-                print(f"[DEBUG] Updating quest progress for type: {quest_type}")
                 type_quest_result = await db.update_quest_progress(user_id, guild_id, quest_type)
-                print(f"[DEBUG] Quest result: {type_quest_result}")
                 if type_quest_result and type_quest_result.get('completed_quests'):
                     if not quest_result:
                         quest_result = type_quest_result
@@ -638,6 +638,9 @@ async def on_message(message):
             # If rain event is active, spawn a new Pokemon instantly
             if channel_id in active_rains:
                 try:
+                    # Add 1 second delay to avoid Discord rate limits (5 messages per 5 seconds)
+                    await asyncio.sleep(1)
+
                     async with aiohttp.ClientSession() as session:
                         new_pokemon = await fetch_pokemon(session)
 
