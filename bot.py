@@ -847,15 +847,22 @@ async def spawn_pokemon():
         if not channel_ids:
             continue
 
-        # Check if guild has gone too long without a spawn (10 minutes max)
+        # Check if there's an active event - events increase spawn rate!
+        event_active = guild_id in active_events
+
+        # Check if guild has gone too long without a spawn
         force_spawn = False
         if guild_id in last_guild_spawn:
             time_since_last = (datetime.now() - last_guild_spawn[guild_id]).total_seconds()
-            if time_since_last > 600:  # 10 minutes = 600 seconds
+            # During events: force spawn after 2 minutes, Normal: force spawn after 10 minutes
+            max_wait = 120 if event_active else 600
+            if time_since_last > max_wait:
                 force_spawn = True
 
-        # Random chance to spawn (creates randomness), or force if it's been too long
-        if not force_spawn and random.random() > 0.25:  # 25% chance per minute = avg ~4 min
+        # Random chance to spawn (higher during events!)
+        # Event: 60% chance per minute = avg ~1.5 min | Normal: 25% chance per minute = avg ~4 min
+        spawn_chance = 0.60 if event_active else 0.25
+        if not force_spawn and random.random() > spawn_chance:
             continue
 
         # Pick a random channel from this guild's configured channels
