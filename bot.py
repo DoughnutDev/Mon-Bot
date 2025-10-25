@@ -220,66 +220,66 @@ def create_spawn_embed(pokemon):
     return embed
 
 
-def get_ridiculous_catch_message(user_name, pokemon_name):
+def get_ridiculous_catch_message(user_mention, pokemon_name):
     """Generate a random ridiculous catch message"""
     messages = [
         # Chaotic Success
-        f"{user_name} accidentally sneezes and the Pokeball flies out, somehow catching {pokemon_name}!",
-        f"{user_name} throws the Pokeball backwards and it ricochets off three trees before bonking {pokemon_name} on the head!",
-        f"{user_name} trips, faceplants, and the Pokeball rolls into {pokemon_name}'s foot. Caught!",
-        f"{user_name} wasn't even looking and caught {pokemon_name} while scrolling through memes!",
-        f"{user_name} threw the Pokeball with their eyes closed and somehow nailed it!",
-        f"{user_name} juggled three Pokeballs, dropped two, and the third caught {pokemon_name}!",
-        f"{user_name} sneezed so hard the Pokeball shot out of their pocket and caught {pokemon_name}!",
-        f"{user_name} tried to catch a different Pokemon but got {pokemon_name} instead. Close enough!",
-        f"{user_name} slipped on a banana peel and yeeted the Pokeball into {pokemon_name}!",
-        f"{user_name} threw the Pokeball while doing a cartwheel. {pokemon_name} was impressed!",
-        f"{user_name}'s Pokeball bounced off a rock, a tree, and a passing Pidgey before catching {pokemon_name}!",
+        f"{user_mention} accidentally sneezes and the Pokeball flies out, somehow catching **{pokemon_name}**!",
+        f"{user_mention} throws the Pokeball backwards and it ricochets off three trees before bonking **{pokemon_name}** on the head!",
+        f"{user_mention} trips, faceplants, and the Pokeball rolls into **{pokemon_name}**'s foot. Caught!",
+        f"{user_mention} wasn't even looking and caught **{pokemon_name}** while scrolling through memes!",
+        f"{user_mention} threw the Pokeball with their eyes closed and somehow nailed it!",
+        f"{user_mention} juggled three Pokeballs, dropped two, and the third caught **{pokemon_name}**!",
+        f"{user_mention} sneezed so hard the Pokeball shot out of their pocket and caught **{pokemon_name}**!",
+        f"{user_mention} tried to catch a different Pokemon but got **{pokemon_name}** instead. Close enough!",
+        f"{user_mention} slipped on a banana peel and yeeted the Pokeball into **{pokemon_name}**!",
+        f"{user_mention} threw the Pokeball while doing a cartwheel. **{pokemon_name}** was impressed!",
+        f"{user_mention}'s Pokeball bounced off a rock, a tree, and a passing Pidgey before catching **{pokemon_name}**!",
 
         # Overly Dramatic
-        f"{user_name} performs a triple backflip, screams 'YEET', and catches {pokemon_name} in mid-air!",
-        f"{user_name} does a sick 360 no-scope and catches {pokemon_name} like a total legend!",
-        f"{user_name} channels their inner anime protagonist and catches {pokemon_name} with the power of friendship!",
-        f"{user_name} strikes a dramatic pose and catches {pokemon_name} while explosions go off in the background!",
-        f"{user_name} does a matrix-style slow-mo dodge and catches {pokemon_name} without breaking a sweat!",
-        f"{user_name} summons the courage of a thousand trainers and catches {pokemon_name} with MAXIMUM OVERDRIVE!",
-        f"{user_name} shouts 'THIS IS FOR POKEKIND!' and catches {pokemon_name} with a heroic pose!",
-        f"{user_name} enters ULTRA INSTINCT mode and catches {pokemon_name} at the speed of light!",
-        f"{user_name} does a kamehameha throwing motion and catches {pokemon_name} OVER 9000 style!",
-        f"{user_name} pulls off an impossible shot while riding a skateboard! {pokemon_name} can't even be mad!",
+        f"{user_mention} performs a triple backflip, screams 'YEET', and catches **{pokemon_name}** in mid-air!",
+        f"{user_mention} does a sick 360 no-scope and catches **{pokemon_name}** like a total legend!",
+        f"{user_mention} channels their inner anime protagonist and catches **{pokemon_name}** with the power of friendship!",
+        f"{user_mention} strikes a dramatic pose and catches **{pokemon_name}** while explosions go off in the background!",
+        f"{user_mention} does a matrix-style slow-mo dodge and catches **{pokemon_name}** without breaking a sweat!",
+        f"{user_mention} summons the courage of a thousand trainers and catches **{pokemon_name}** with MAXIMUM OVERDRIVE!",
+        f"{user_mention} shouts 'THIS IS FOR POKEKIND!' and catches **{pokemon_name}** with a heroic pose!",
+        f"{user_mention} enters ULTRA INSTINCT mode and catches **{pokemon_name}** at the speed of light!",
+        f"{user_mention} does a kamehameha throwing motion and catches **{pokemon_name}** OVER 9000 style!",
+        f"{user_mention} pulls off an impossible shot while riding a skateboard! **{pokemon_name}** can't even be mad!",
 
         # Just Absurd
-        f"{user_name} offers {pokemon_name} a trade deal: 'I receive: You. You receive: A cozy ball.' {pokemon_name} accepts!",
-        f"{user_name} bribed {pokemon_name} with chicken nuggets. It worked!",
-        f"{user_name} caught {pokemon_name} by promising not to make it do taxes!",
-        f"{user_name} and {pokemon_name} played rock-paper-scissors. {user_name} won!",
-        f"{user_name} asked {pokemon_name} nicely. {pokemon_name} said 'aight bet' and hopped in!",
-        f"{user_name} showed {pokemon_name} a meme so funny it couldn't resist joining the team!",
-        f"{user_name} challenged {pokemon_name} to a dance-off. {pokemon_name} forfeited immediately!",
-        f"{user_name} caught {pokemon_name} by promising free WiFi and snacks!",
-        f"{user_name} convinced {pokemon_name} that the Pokeball has heated seats!",
-        f"{user_name} told {pokemon_name} a dad joke so bad that {pokemon_name} gave up!",
-        f"{user_name} bet {pokemon_name} it couldn't fit in a Pokeball. {pokemon_name} proved them wrong!",
-        f"{user_name} uses confusion! {pokemon_name} is confused and catches itself!",
-        f"{user_name} signed a contract with {pokemon_name}. Lawyers were involved!",
-        f"{user_name} offered {pokemon_name} a 401k and full benefits. {pokemon_name} joined the team!",
-        f"{user_name} showed {pokemon_name} pictures of other trainers. {pokemon_name} chose {user_name} out of jealousy!",
-        f"{user_name} played 'Never Gonna Give You Up'. {pokemon_name} got rickrolled into the Pokeball!",
-        f"{user_name} challenged {pokemon_name} to a game of Among Us. {pokemon_name} was NOT the impostor!",
-        f"{user_name} told {pokemon_name} 'Your mom' and {pokemon_name} couldn't come up with a comeback!",
-        f"{user_name} dabbed so hard that {pokemon_name} surrendered out of sheer cringe!",
-        f"{user_name} default danced and {pokemon_name} couldn't handle the second-hand embarrassment!",
-        f"{user_name} caught {pokemon_name} after losing a bet. Wait, who lost the bet again?",
-        f"{user_name} and {pokemon_name} had a staring contest. {pokemon_name} blinked first!",
-        f"{user_name} asked {pokemon_name} to rate their Pokeball throw. {pokemon_name} said 'caught/10'!",
-        f"{user_name} accidentally ordered {pokemon_name} on Uber Eats. Delivery was instant!",
-        f"{user_name} swiped right on {pokemon_name}. It's a match!",
-        f"{user_name} told {pokemon_name} they'd be in the thumbnail. {pokemon_name} couldn't resist the clout!",
-        f"{user_name} caught {pokemon_name} by promising to never use the GTS!",
-        f"{user_name} whispered 'subscribe and hit the bell' and {pokemon_name} became a loyal follower!",
-        f"{user_name} simply said 'no u' and {pokemon_name} had no choice but to join!",
-        f"{user_name} convinced {pokemon_name} that being caught is just a social construct!",
-        f"{user_name} showed {pokemon_name} their Pokedex completion rate. {pokemon_name} felt obligated to help!",
+        f"{user_mention} offers **{pokemon_name}** a trade deal: 'I receive: You. You receive: A cozy ball.' **{pokemon_name}** accepts!",
+        f"{user_mention} bribed **{pokemon_name}** with chicken nuggets. It worked!",
+        f"{user_mention} caught **{pokemon_name}** by promising not to make it do taxes!",
+        f"{user_mention} and **{pokemon_name}** played rock-paper-scissors. {user_mention} won!",
+        f"{user_mention} asked **{pokemon_name}** nicely. **{pokemon_name}** said 'aight bet' and hopped in!",
+        f"{user_mention} showed **{pokemon_name}** a meme so funny it couldn't resist joining the team!",
+        f"{user_mention} challenged **{pokemon_name}** to a dance-off. **{pokemon_name}** forfeited immediately!",
+        f"{user_mention} caught **{pokemon_name}** by promising free WiFi and snacks!",
+        f"{user_mention} convinced **{pokemon_name}** that the Pokeball has heated seats!",
+        f"{user_mention} told **{pokemon_name}** a dad joke so bad that **{pokemon_name}** gave up!",
+        f"{user_mention} bet **{pokemon_name}** it couldn't fit in a Pokeball. **{pokemon_name}** proved them wrong!",
+        f"{user_mention} uses confusion! **{pokemon_name}** is confused and catches itself!",
+        f"{user_mention} signed a contract with **{pokemon_name}**. Lawyers were involved!",
+        f"{user_mention} offered **{pokemon_name}** a 401k and full benefits. **{pokemon_name}** joined the team!",
+        f"{user_mention} showed **{pokemon_name}** pictures of other trainers. **{pokemon_name}** chose {user_mention} out of jealousy!",
+        f"{user_mention} played 'Never Gonna Give You Up'. **{pokemon_name}** got rickrolled into the Pokeball!",
+        f"{user_mention} challenged **{pokemon_name}** to a game of Among Us. **{pokemon_name}** was NOT the impostor!",
+        f"{user_mention} told **{pokemon_name}** 'Your mom' and **{pokemon_name}** couldn't come up with a comeback!",
+        f"{user_mention} dabbed so hard that **{pokemon_name}** surrendered out of sheer cringe!",
+        f"{user_mention} default danced and **{pokemon_name}** couldn't handle the second-hand embarrassment!",
+        f"{user_mention} caught **{pokemon_name}** after losing a bet. Wait, who lost the bet again?",
+        f"{user_mention} and **{pokemon_name}** had a staring contest. **{pokemon_name}** blinked first!",
+        f"{user_mention} asked **{pokemon_name}** to rate their Pokeball throw. **{pokemon_name}** said 'caught/10'!",
+        f"{user_mention} accidentally ordered **{pokemon_name}** on Uber Eats. Delivery was instant!",
+        f"{user_mention} swiped right on **{pokemon_name}**. It's a match!",
+        f"{user_mention} told **{pokemon_name}** they'd be in the thumbnail. **{pokemon_name}** couldn't resist the clout!",
+        f"{user_mention} caught **{pokemon_name}** by promising to never use the GTS!",
+        f"{user_mention} whispered 'subscribe and hit the bell' and **{pokemon_name}** became a loyal follower!",
+        f"{user_mention} simply said 'no u' and **{pokemon_name}** had no choice but to join!",
+        f"{user_mention} convinced **{pokemon_name}** that being caught is just a social construct!",
+        f"{user_mention} showed **{pokemon_name}** their Pokedex completion rate. **{pokemon_name}** felt obligated to help!",
     ]
 
     return random.choice(messages)
@@ -300,7 +300,7 @@ def create_catch_embed(pokemon, user, time_taken, is_shiny=False, currency_rewar
     shiny_text = "✨ **SHINY!** ✨ " if is_shiny else ""
 
     # Get ridiculous catch message
-    catch_message = get_ridiculous_catch_message(user.display_name, pokemon['name'])
+    catch_message = get_ridiculous_catch_message(user.mention, pokemon['name'])
 
     # Build description with currency reward
     description = f"{catch_message}\n\n{shiny_text}**Pokedex #:** {pokemon['id']}\n**Caught in:** {time_str}"
