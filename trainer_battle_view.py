@@ -568,6 +568,35 @@ class TrainerBattleView(View):
             xp_gained, is_win=True
         )
 
+        # Update quest progress for defeating wild trainer
+        quest_result = await db.update_quest_progress(self.user.id, self.guild_id, 'defeat_trainers')
+
+        # Update quest progress for winning battles (general)
+        battle_quest_result = await db.update_quest_progress(self.user.id, self.guild_id, 'win_battles')
+        if battle_quest_result and battle_quest_result.get('completed_quests'):
+            if not quest_result:
+                quest_result = battle_quest_result
+            else:
+                quest_result['total_currency'] += battle_quest_result.get('total_currency', 0)
+                quest_result['completed_quests'].extend(battle_quest_result['completed_quests'])
+
+        # Update quest progress for catching the wild Pokemon (type-specific)
+        pokemon_types = self.wild_pokemon['types']
+        for poke_type in pokemon_types:
+            type_lower = poke_type.lower()
+            quest_type = f'catch_{type_lower}'
+            type_quest_result = await db.update_quest_progress(self.user.id, self.guild_id, quest_type)
+            if type_quest_result and type_quest_result.get('completed_quests'):
+                if not quest_result:
+                    quest_result = type_quest_result
+                else:
+                    quest_result['total_currency'] += type_quest_result.get('total_currency', 0)
+                    quest_result['completed_quests'].extend(type_quest_result['completed_quests'])
+
+        # Award quest currency if any quests were completed
+        if quest_result and quest_result.get('total_currency', 0) > 0:
+            await db.add_currency(self.user.id, self.guild_id, quest_result['total_currency'])
+
         # Clear battle state from bot module
         import bot
         if self.user.id in bot.active_trainer_battles:
@@ -580,9 +609,17 @@ class TrainerBattleView(View):
             color=discord.Color.green()
         )
 
+        rewards_text = f"• Caught **{self.wild_pokemon['name']}**!\n• Earned **₽{self.trainer['reward_money']}** Pokedollars!\n• **{self.user_choice['pokemon_name']}** gained **{xp_gained} XP**!"
+
+        # Add quest rewards to text if any
+        if quest_result and quest_result.get('total_currency', 0) > 0:
+            quest_currency = quest_result['total_currency']
+            quest_count = len(quest_result['completed_quests'])
+            rewards_text += f"\n• ✅ **{quest_count} Quest(s) Completed** - ₽{quest_currency}"
+
         embed.add_field(
             name="🏆 Rewards",
-            value=f"• Caught **{self.wild_pokemon['name']}**!\n• Earned **₽{self.trainer['reward_money']}** Pokedollars!\n• **{self.user_choice['pokemon_name']}** gained **{xp_gained} XP**!",
+            value=rewards_text,
             inline=False
         )
 

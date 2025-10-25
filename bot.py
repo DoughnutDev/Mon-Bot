@@ -333,36 +333,6 @@ async def on_message(message):
     if message.content.lower() == 'ball':
         channel_id = str(message.channel.id)
 
-        # Check if rain event is active and no spawn exists - spawn instantly during rain
-        if channel_id in active_rains and channel_id not in active_spawns:
-            # Spawn a Pokemon instantly during rain
-            try:
-                # Add 1 second delay to avoid Discord rate limits (5 messages per 5 seconds)
-                await asyncio.sleep(1)
-
-                async with aiohttp.ClientSession() as session:
-                    pokemon = await fetch_pokemon(session)
-
-                if pokemon:
-                    # Store active spawn with timestamp
-                    spawn_time = datetime.now()
-                    active_spawns[channel_id] = {
-                        'pokemon': pokemon,
-                        'spawn_time': spawn_time
-                    }
-
-                    # Send spawn message
-                    embed = create_spawn_embed(pokemon)
-                    await message.channel.send(embed=embed)
-
-                    print(f"Rain spawned {pokemon['name']} in {message.guild.name}#{message.channel.name}")
-
-                    # Don't process the catch yet - let the user type "ball" again
-                    return
-            except Exception as e:
-                print(f"Error spawning Pokemon during rain: {e}")
-                return
-
         if channel_id in active_spawns:
             # Remove spawn immediately to prevent race condition (first come first serve)
             spawn_data = active_spawns.pop(channel_id)
@@ -647,7 +617,13 @@ async def on_message(message):
                 await db.add_currency(user_id, guild_id, quest_currency_earned)
 
             # Send catch confirmation with time and currency reward
+            is_rain_active = channel_id in active_rains
             embed = create_catch_embed(pokemon, message.author, time_taken, is_shiny=is_shiny, currency_reward=currency_reward)
+
+            # Add rain indicator to embed
+            if is_rain_active:
+                embed.set_footer(text="⛈️ Rain Event Active | Next Pokemon spawning...")
+
             catch_message = await message.channel.send(embed=embed)
 
             # Store recent catch for laugh reactions (expire after 10 seconds)
@@ -657,30 +633,34 @@ async def on_message(message):
                 'catcher_id': user_id
             }
 
-            # If rain event is active, spawn a new Pokemon instantly
-            if channel_id in active_rains:
-                try:
-                    # Add 1 second delay to avoid Discord rate limits (5 messages per 5 seconds)
-                    await asyncio.sleep(1)
+            # If rain event is active, spawn a new Pokemon instantly (in background)
+            if is_rain_active:
+                async def spawn_next_rain_pokemon():
+                    try:
+                        # Small delay to avoid rate limits but don't block the main flow
+                        await asyncio.sleep(0.5)
 
-                    async with aiohttp.ClientSession() as session:
-                        new_pokemon = await fetch_pokemon(session)
+                        async with aiohttp.ClientSession() as session:
+                            new_pokemon = await fetch_pokemon(session)
 
-                    if new_pokemon:
-                        # Store new active spawn with timestamp
-                        spawn_time = datetime.now()
-                        active_spawns[channel_id] = {
-                            'pokemon': new_pokemon,
-                            'spawn_time': spawn_time
-                        }
+                        if new_pokemon:
+                            # Store new active spawn with timestamp
+                            spawn_time = datetime.now()
+                            active_spawns[channel_id] = {
+                                'pokemon': new_pokemon,
+                                'spawn_time': spawn_time
+                            }
 
-                        # Send spawn message
-                        spawn_embed = create_spawn_embed(new_pokemon)
-                        await message.channel.send(embed=spawn_embed)
+                            # Send spawn message
+                            spawn_embed = create_spawn_embed(new_pokemon)
+                            await message.channel.send(embed=spawn_embed)
 
-                        print(f"Rain spawned {new_pokemon['name']} after catch in {message.guild.name}#{message.channel.name}")
-                except Exception as e:
-                    print(f"Error spawning Pokemon during rain after catch: {e}")
+                            print(f"Rain spawned {new_pokemon['name']} after catch in {message.guild.name}#{message.channel.name}")
+                    except Exception as e:
+                        print(f"Error spawning Pokemon during rain after catch: {e}")
+
+                # Create task to run in background without blocking
+                asyncio.create_task(spawn_next_rain_pokemon())
 
             # If quests were completed, notify user
             if quest_result and quest_result.get('completed_quests'):
@@ -977,6 +957,26 @@ async def rain_command(interaction: discord.Interaction):
 
     # Update quest progress for using rain
     await db.update_quest_progress(user_id, guild_id, 'use_rain')
+
+    # Spawn first Pokemon immediately
+    try:
+        async with aiohttp.ClientSession() as session:
+            first_pokemon = await fetch_pokemon(session)
+
+        if first_pokemon:
+            # Store active spawn with timestamp
+            spawn_time = datetime.now()
+            active_spawns[channel_id] = {
+                'pokemon': first_pokemon,
+                'spawn_time': spawn_time
+            }
+
+            # Send spawn message
+            spawn_embed = create_spawn_embed(first_pokemon)
+            await interaction.channel.send(embed=spawn_embed)
+            print(f"Rain spawned initial {first_pokemon['name']} in {interaction.guild.name}#{interaction.channel.name}")
+    except Exception as e:
+        print(f"Error spawning initial rain Pokemon: {e}")
 
     # Announce rain start
     rain_embed = discord.Embed(
@@ -5046,8 +5046,17 @@ class SimpleTrainerBattleView(View):
             xp_gained, is_win=True
         )
 
-        # Update quest progress
+        # Update quest progress for trainer battles (specific)
         quest_result = await db.update_quest_progress(self.user.id, self.guild_id, 'win_trainer_battles')
+
+        # Update quest progress for winning battles (general)
+        battle_quest_result = await db.update_quest_progress(self.user.id, self.guild_id, 'win_battles')
+        if battle_quest_result and battle_quest_result.get('completed_quests'):
+            if not quest_result:
+                quest_result = battle_quest_result
+            else:
+                quest_result['total_currency'] += battle_quest_result.get('total_currency', 0)
+                quest_result['completed_quests'].extend(battle_quest_result['completed_quests'])
 
         # Create victory embed
         embed = discord.Embed(
