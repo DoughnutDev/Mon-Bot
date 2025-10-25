@@ -5191,6 +5191,9 @@ async def trainer(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
+    # Defer the response immediately
+    await interaction.response.defer()
+
     # Check cooldown
     cooldown = await db.check_trainer_cooldown(interaction.user.id, interaction.guild.id)
 
@@ -5207,11 +5210,8 @@ async def trainer(interaction: discord.Interaction):
             description=f"You've used all 3 trainer battles this hour!\n\nNext reset in: **{time_str}**",
             color=discord.Color.orange()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
         return
-
-    # Defer the response
-    await interaction.response.defer()
 
     # Get user's Pokemon
     user_pokemon = await db.get_user_pokemon_for_trade(interaction.user.id, interaction.guild.id)
