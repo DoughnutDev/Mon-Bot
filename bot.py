@@ -907,18 +907,18 @@ async def spawn_command(interaction: discord.Interaction):
         await interaction.response.send_message("This command can only be used in a server!", ephemeral=True)
         return
 
+    # Defer the response immediately
+    await interaction.response.defer(ephemeral=True)
+
     channel_id = str(interaction.channel.id)
 
     # Check if there's already a spawn in this channel
     if channel_id in active_spawns:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "There's already a Pokemon active in this channel! Catch it first before spawning another.",
             ephemeral=True
         )
         return
-
-    # Defer the response
-    await interaction.response.defer(ephemeral=True)
 
     try:
         # Fetch random Pokemon
