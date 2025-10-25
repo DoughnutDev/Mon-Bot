@@ -371,8 +371,13 @@ class TrainerBattleView(View):
         await self.create_battle_buttons()
         embed = self.create_battle_embed()
 
-        if self.battle_message:
-            await self.battle_message.edit(embed=embed, view=self)
+        # Use the interaction's message to edit (avoids interaction timeout issues)
+        try:
+            await interaction.message.edit(embed=embed, view=self)
+        except:
+            # Fallback to stored battle_message if interaction.message fails
+            if self.battle_message:
+                await self.battle_message.edit(embed=embed, view=self)
 
     async def user_attacks(self, move: dict):
         """User's Pokemon attacks"""
