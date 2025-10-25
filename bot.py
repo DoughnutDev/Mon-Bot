@@ -44,12 +44,18 @@ active_trainer_battles = {}  # {user_id: {'trainer': trainer_data, 'pokemon': wi
 last_guild_spawn = {}  # {guild_id: datetime} - Track last spawn per guild to guarantee max spawn interval
 recent_catches = {}  # {channel_id: {'message': catch_message, 'timestamp': datetime}} - Track recent catches for laugh reactions
 active_rains = {}  # {channel_id: {'user_id': user_id, 'start_time': datetime, 'guild_id': guild_id}} - Track active rain events
+active_events = {}  # {guild_id: {'type': event_type, 'data': event_data, 'start_time': datetime, 'end_time': datetime}} - Track active spawn events
 
 
-async def fetch_pokemon(session, pokemon_id=None):
-    """Fetch a random or specific Pokemon from PokeAPI"""
+async def fetch_pokemon(session, pokemon_id=None, guild_id=None):
+    """Fetch a random or specific Pokemon from PokeAPI, considering active events"""
     if pokemon_id is None:
-        pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
+        # Check for active events that modify spawns
+        if guild_id and guild_id in active_events:
+            event = active_events[guild_id]
+            pokemon_id = get_event_pokemon(event)
+        else:
+            pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
 
     url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
 
@@ -69,6 +75,58 @@ async def fetch_pokemon(session, pokemon_id=None):
         print(f"Error fetching Pokemon: {e}")
 
     return None
+
+
+def get_event_pokemon(event):
+    """Get a Pokemon ID based on the active event"""
+    event_type = event['type']
+    event_data = event['data']
+
+    if event_type == 'type_boost':
+        # Spawn Pokemon of the boosted type
+        type_pokemon = get_pokemon_by_type(event_data['type'])
+        return random.choice(type_pokemon)
+
+    elif event_type == 'legendary_boost':
+        # 30% chance for legendary, otherwise normal
+        legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251]
+        if random.random() < 0.3:
+            return random.choice(legendary_ids)
+        else:
+            return random.randint(1, 251)
+
+    elif event_type == 'starter_rush':
+        # Spawn starter Pokemon
+        starter_ids = [1, 4, 7, 152, 155, 158, 2, 3, 5, 6, 8, 9, 153, 154, 156, 157, 159, 160]
+        return random.choice(starter_ids)
+
+    elif event_type == 'regional':
+        # Spawn Pokemon from specific generation
+        if event_data['region'] == 'kanto':
+            return random.randint(1, 151)
+        elif event_data['region'] == 'johto':
+            return random.randint(152, 251)
+
+    # Default random spawn
+    return random.randint(1, 251)
+
+
+def get_pokemon_by_type(pokemon_type):
+    """Get list of Pokemon IDs by type (simplified for common types)"""
+    type_map = {
+        'fire': [4, 5, 6, 37, 38, 58, 59, 77, 78, 126, 136, 146, 155, 156, 157, 218, 219, 240],
+        'water': [7, 8, 9, 54, 55, 60, 61, 62, 72, 73, 79, 80, 86, 87, 90, 91, 98, 99, 116, 117, 118, 119, 120, 134, 138, 139, 140, 141, 158, 159, 160, 170, 171, 183, 184, 194, 195, 199, 211, 222, 223, 224, 226, 230, 245],
+        'grass': [1, 2, 3, 43, 44, 45, 46, 47, 69, 70, 71, 102, 103, 114, 152, 153, 154, 182, 187, 188, 189, 191, 192],
+        'electric': [25, 26, 81, 82, 100, 101, 125, 135, 145, 172, 179, 180, 181, 239, 243],
+        'dragon': [147, 148, 149, 230],
+        'psychic': [63, 64, 65, 79, 80, 96, 97, 102, 103, 121, 122, 124, 150, 151, 177, 178, 196, 199, 201, 203, 238, 251],
+        'ghost': [92, 93, 94, 200],
+        'ice': [87, 91, 124, 131, 144, 215, 220, 221, 225],
+        'dark': [197, 198, 215, 228, 229, 248],
+        'steel': [81, 82, 205, 208, 211, 227],
+    }
+
+    return type_map.get(pokemon_type, [random.randint(1, 251)])  # Default to random if type not found
 
 
 async def fetch_pokemon_moves(session, pokemon_id: int, num_moves: int = 4, max_level: int = 100):
@@ -388,6 +446,11 @@ async def on_ready():
     if not spawn_pokemon.is_running():
         spawn_pokemon.start()
         print('Pokemon spawn loop started', flush=True)
+
+    # Start event management loop
+    if not manage_spawn_events.is_running():
+        manage_spawn_events.start()
+        print('Spawn event manager started', flush=True)
 
 
 @bot.event
@@ -709,7 +772,7 @@ async def on_message(message):
                         await asyncio.sleep(0.5)
 
                         async with aiohttp.ClientSession() as session:
-                            new_pokemon = await fetch_pokemon(session)
+                            new_pokemon = await fetch_pokemon(session, guild_id=guild_id)
 
                         if new_pokemon:
                             # Store new active spawn with timestamp
@@ -808,9 +871,9 @@ async def spawn_pokemon():
             if channel is None:
                 continue
 
-            # Fetch random Pokemon
+            # Fetch random Pokemon (considering active events)
             async with aiohttp.ClientSession() as session:
-                pokemon = await fetch_pokemon(session)
+                pokemon = await fetch_pokemon(session, guild_id=guild_id)
 
             if pokemon:
                 # Store active spawn with timestamp
@@ -831,6 +894,129 @@ async def spawn_pokemon():
 
         except Exception as e:
             print(f"Error spawning Pokemon in channel {channel_id}: {e}")
+
+
+@tasks.loop(minutes=1)  # Check every minute for event triggers/endings
+async def manage_spawn_events():
+    """Manage random spawn events across all servers"""
+    guild_channels = await db.get_all_spawn_channels()
+
+    if not guild_channels:
+        return
+
+    for guild_id, channel_ids in guild_channels.items():
+        if not channel_ids:
+            continue
+
+        # Check if there's an active event
+        if guild_id in active_events:
+            event = active_events[guild_id]
+            # Check if event has ended
+            if datetime.now() >= event['end_time']:
+                # End event
+                await end_spawn_event(guild_id, channel_ids)
+        else:
+            # Random chance to start a new event (10% chance per minute)
+            if random.random() < 0.10:
+                await start_random_event(guild_id, channel_ids)
+
+
+async def start_random_event(guild_id: int, channel_ids: list):
+    """Start a random spawn event for a guild"""
+    # Random event duration (5-30 minutes)
+    duration_minutes = random.randint(5, 30)
+    from datetime import timedelta
+    end_time = datetime.now() + timedelta(minutes=duration_minutes)
+
+    # Choose random event type
+    event_types = [
+        {
+            'type': 'type_boost',
+            'types': ['fire', 'water', 'grass', 'electric', 'dragon', 'psychic', 'ghost', 'ice'],
+            'emoji': {'fire': '🔥', 'water': '💧', 'grass': '🌿', 'electric': '⚡', 'dragon': '🐉',
+                     'psychic': '🔮', 'ghost': '👻', 'ice': '❄️'}
+        },
+        {'type': 'legendary_boost', 'name': 'Legendary Pokemon Sighting'},
+        {'type': 'starter_rush', 'name': 'Starter Pokemon Rush'},
+        {'type': 'regional', 'regions': ['kanto', 'johto']}
+    ]
+
+    chosen = random.choice(event_types)
+
+    if chosen['type'] == 'type_boost':
+        poke_type = random.choice(chosen['types'])
+        emoji = chosen['emoji'].get(poke_type, '✨')
+        event_data = {'type': poke_type}
+        title = f"{emoji} {poke_type.capitalize()}-type Pokemon Swarm!"
+        description = f"**{poke_type.capitalize()}-type Pokemon are appearing more frequently!**\n\n⏰ Duration: **{duration_minutes} minutes**"
+
+    elif chosen['type'] == 'legendary_boost':
+        event_data = {}
+        title = "⭐ Legendary Pokemon Spotted!"
+        description = f"**Legendary Pokemon have increased spawn rates!**\n\n⏰ Duration: **{duration_minutes} minutes**"
+
+    elif chosen['type'] == 'starter_rush':
+        event_data = {}
+        title = "🌟 Starter Pokemon Rush!"
+        description = f"**Starter Pokemon are everywhere!**\n\n⏰ Duration: **{duration_minutes} minutes**"
+
+    elif chosen['type'] == 'regional':
+        region = random.choice(chosen['regions'])
+        event_data = {'region': region}
+        title = f"🗺️ {region.capitalize()} Region Invasion!"
+        description = f"**{region.capitalize()} Pokemon are taking over!**\n\n⏰ Duration: **{duration_minutes} minutes**"
+
+    # Store event
+    active_events[guild_id] = {
+        'type': chosen['type'],
+        'data': event_data,
+        'start_time': datetime.now(),
+        'end_time': end_time
+    }
+
+    # Announce event in all spawn channels
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.purple()
+    )
+    embed.set_footer(text="Rare Spawn Event")
+
+    for channel_id in channel_ids:
+        try:
+            channel = bot.get_channel(channel_id)
+            if channel:
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Error announcing event in channel {channel_id}: {e}")
+
+    print(f"Started {chosen['type']} event in guild {guild_id} for {duration_minutes} minutes")
+
+
+async def end_spawn_event(guild_id: int, channel_ids: list):
+    """End an active spawn event"""
+    if guild_id not in active_events:
+        return
+
+    event = active_events[guild_id]
+    del active_events[guild_id]
+
+    # Announce event end
+    embed = discord.Embed(
+        title="🌤️ Spawn Event Ended",
+        description="The special spawn event has ended!\nPokemon spawns have returned to normal.",
+        color=discord.Color.blue()
+    )
+
+    for channel_id in channel_ids:
+        try:
+            channel = bot.get_channel(channel_id)
+            if channel:
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"Error announcing event end in channel {channel_id}: {e}")
+
+    print(f"Ended spawn event in guild {guild_id}")
 
 
 @bot.tree.command(name='setup', description='Configure Mon Bot for your server (Admin only)')
@@ -921,9 +1107,9 @@ async def spawn_command(interaction: discord.Interaction):
         return
 
     try:
-        # Fetch random Pokemon
+        # Fetch random Pokemon (considering active events)
         async with aiohttp.ClientSession() as session:
-            pokemon = await fetch_pokemon(session)
+            pokemon = await fetch_pokemon(session, guild_id=interaction.guild.id)
 
         if pokemon:
             # Store active spawn with timestamp
@@ -1029,7 +1215,7 @@ async def rain_command(interaction: discord.Interaction):
     # Spawn first Pokemon immediately
     try:
         async with aiohttp.ClientSession() as session:
-            first_pokemon = await fetch_pokemon(session)
+            first_pokemon = await fetch_pokemon(session, guild_id=guild_id)
 
         if first_pokemon:
             # Store active spawn with timestamp
