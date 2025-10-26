@@ -923,6 +923,13 @@ async def manage_spawn_events():
                 # End event
                 await end_spawn_event(guild_id, channel_ids)
         else:
+            # Check if any channel in this guild has an active uncaught Pokemon
+            has_active_spawn = any(str(channel_id) in active_spawns for channel_id in channel_ids)
+
+            if has_active_spawn:
+                # Don't start event if there's an uncaught Pokemon
+                continue
+
             # Random chance to start a new event (10% chance per minute)
             if random.random() < 0.10:
                 await start_random_event(guild_id, channel_ids)
