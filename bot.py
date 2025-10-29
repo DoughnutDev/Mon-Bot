@@ -4178,7 +4178,7 @@ class PokedexView(View):
 
         embed = discord.Embed(
             title=f"{self.username}'s Pokedex",
-            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/251 ({stats['unique']/251*100:.1f}%)",
+            description=f"**Total Caught:** {stats['total']}\n**Unique Pokemon:** {stats['unique']}/386 ({stats['unique']/386*100:.1f}%)",
             color=discord.Color.blue()
         )
 

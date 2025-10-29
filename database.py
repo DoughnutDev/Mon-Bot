@@ -469,12 +469,14 @@ async def get_pokemon_with_counts(user_id: int, guild_id: int, sort_by: str = 'm
 
 
 async def get_legendary_pokemon(user_id: int, guild_id: int) -> List[Dict]:
-    """Get only legendary Pokemon from Gen 1"""
+    """Get only legendary Pokemon from Gen 1, 2, and 3"""
     if not pool:
         return []
 
-    # Gen 1 legendaries: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
-    legendary_ids = [144, 145, 146, 150, 151]
+    # Gen 1: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
+    # Gen 2: Raikou (243), Entei (244), Suicune (245), Lugia (249), Ho-Oh (250), Celebi (251)
+    # Gen 3: Regirock (377), Regice (378), Registeel (379), Latias (380), Latios (381), Kyogre (382), Groudon (383), Rayquaza (384), Jirachi (385), Deoxys (386)
+    legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386]
 
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
@@ -560,7 +562,8 @@ async def get_leaderboard_legendaries(guild_id: int, limit: int = 10) -> List[Di
     if not pool:
         return []
 
-    legendary_ids = [144, 145, 146, 150, 151]
+    # All legendaries from Gen 1, 2, and 3
+    legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386]
 
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
@@ -1404,14 +1407,17 @@ async def get_duplicate_pokemon(user_id: int, guild_id: int) -> List[Dict]:
 
 def calculate_sell_price(pokemon_id: int, is_shiny: bool = False) -> int:
     """Calculate sell price based on Pokemon rarity and shiny status"""
-    # Gen 1 legendaries: Articuno (144), Zapdos (145), Moltres (146), Mewtwo (150), Mew (151)
-    legendary_ids = [144, 145, 146, 150, 151]
+    # All legendaries from Gen 1, 2, and 3
+    legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386]
 
-    # Starter Pokemon and their evolutions
-    starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    # Starter Pokemon and their evolutions (Gen 1, 2, 3)
+    starter_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 152, 153, 154, 155, 156, 157, 158, 159, 160, 252, 253, 254, 255, 256, 257, 258, 259, 260]
 
-    # Pseudo-legendaries and rare Pokemon
-    rare_ids = [3, 6, 9, 59, 65, 68, 76, 94, 103, 112, 115, 130, 131, 142, 143]
+    # Pseudo-legendaries and rare Pokemon (Gen 1, 2, 3)
+    # Gen 1: Final starter evos, Arcanine, Alakazam, Golem, Gengar, Exeggutor, Rhydon, Gyarados, Lapras, Aerodactyl, Snorlax
+    # Gen 2: Tyranitar line (246, 247, 248), final starter evos (154, 157, 160)
+    # Gen 3: Salamence line (371, 372, 373), Metagross line (374, 375, 376), final starter evos (254, 257, 260), Slaking line (289)
+    rare_ids = [3, 6, 9, 59, 65, 68, 76, 94, 103, 112, 115, 130, 131, 142, 143, 154, 157, 160, 246, 247, 248, 254, 257, 260, 289, 371, 372, 373, 374, 375, 376]
 
     if pokemon_id in legendary_ids:
         base_price = 100  # Legendaries worth 100
