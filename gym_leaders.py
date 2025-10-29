@@ -438,13 +438,157 @@ GYM_LEADERS_JOHTO = {
 
 GYM_ORDER_JOHTO = ['falkner', 'bugsy', 'whitney', 'morty', 'chuck', 'jasmine', 'pryce', 'clair']
 
+# Gen 3 Hoenn Gym Leaders
+GYM_LEADERS_HOENN = {
+    'roxanne': {
+        'name': 'Roxanne',
+        'title': 'The Rock-Loving Honor Student',
+        'type': 'Rock',
+        'badge': '🗿 Stone Badge',
+        'badge_emoji': '🗿',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/17.png',
+        'location': 'Rustboro City',
+        'pokemon': [
+            {'name': 'Geodude', 'id': 74, 'level': 12, 'types': ['rock', 'ground']},
+            {'name': 'Geodude', 'id': 74, 'level': 12, 'types': ['rock', 'ground']},
+            {'name': 'Nosepass', 'id': 299, 'level': 15, 'types': ['rock']}
+        ],
+        'rewards': {'pokedollars': 500, 'pack': 'Basic Pack'},
+        'difficulty': 1
+    },
+    'brawly': {
+        'name': 'Brawly',
+        'title': 'A Big Wave in Fighting',
+        'type': 'Fighting',
+        'badge': '🥊 Knuckle Badge',
+        'badge_emoji': '🥊',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/18.png',
+        'location': 'Dewford Town',
+        'pokemon': [
+            {'name': 'Machop', 'id': 66, 'level': 16, 'types': ['fighting']},
+            {'name': 'Meditite', 'id': 307, 'level': 16, 'types': ['fighting', 'psychic']},
+            {'name': 'Makuhita', 'id': 296, 'level': 19, 'types': ['fighting']}
+        ],
+        'rewards': {'pokedollars': 750, 'pack': 'Basic Pack'},
+        'difficulty': 2
+    },
+    'wattson': {
+        'name': 'Wattson',
+        'title': 'The Cheerfully Electrifying Man',
+        'type': 'Electric',
+        'badge': '⚡ Dynamo Badge',
+        'badge_emoji': '⚡',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/19.png',
+        'location': 'Mauville City',
+        'pokemon': [
+            {'name': 'Voltorb', 'id': 100, 'level': 20, 'types': ['electric']},
+            {'name': 'Electrike', 'id': 309, 'level': 20, 'types': ['electric']},
+            {'name': 'Magneton', 'id': 82, 'level': 22, 'types': ['electric', 'steel']},
+            {'name': 'Manectric', 'id': 310, 'level': 24, 'types': ['electric']}
+        ],
+        'rewards': {'pokedollars': 1000, 'pack': 'Booster Pack'},
+        'difficulty': 3
+    },
+    'flannery': {
+        'name': 'Flannery',
+        'title': 'One With a Fiery Passion That Burns',
+        'type': 'Fire',
+        'badge': '🔥 Heat Badge',
+        'badge_emoji': '🔥',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/20.png',
+        'location': 'Lavaridge Town',
+        'pokemon': [
+            {'name': 'Numel', 'id': 322, 'level': 24, 'types': ['fire', 'ground']},
+            {'name': 'Slugma', 'id': 218, 'level': 24, 'types': ['fire']},
+            {'name': 'Camerupt', 'id': 323, 'level': 26, 'types': ['fire', 'ground']},
+            {'name': 'Torkoal', 'id': 324, 'level': 29, 'types': ['fire']}
+        ],
+        'rewards': {'pokedollars': 1250, 'pack': 'Booster Pack'},
+        'difficulty': 4
+    },
+    'norman': {
+        'name': 'Norman',
+        'title': 'A Man in Pursuit of Power',
+        'type': 'Normal',
+        'badge': '⚖️ Balance Badge',
+        'badge_emoji': '⚖️',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/21.png',
+        'location': 'Petalburg City',
+        'pokemon': [
+            {'name': 'Spinda', 'id': 327, 'level': 27, 'types': ['normal']},
+            {'name': 'Vigoroth', 'id': 288, 'level': 27, 'types': ['normal']},
+            {'name': 'Linoone', 'id': 264, 'level': 29, 'types': ['normal']},
+            {'name': 'Slaking', 'id': 289, 'level': 31, 'types': ['normal']}
+        ],
+        'rewards': {'pokedollars': 1500, 'pack': 'Premium Pack'},
+        'difficulty': 5
+    },
+    'winona': {
+        'name': 'Winona',
+        'title': 'The Bird Pokemon User Taking Flight into the World',
+        'type': 'Flying',
+        'badge': '🪽 Feather Badge',
+        'badge_emoji': '🪽',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/22.png',
+        'location': 'Fortree City',
+        'pokemon': [
+            {'name': 'Swablu', 'id': 333, 'level': 29, 'types': ['normal', 'flying']},
+            {'name': 'Tropius', 'id': 357, 'level': 29, 'types': ['grass', 'flying']},
+            {'name': 'Pelipper', 'id': 279, 'level': 30, 'types': ['water', 'flying']},
+            {'name': 'Skarmory', 'id': 227, 'level': 31, 'types': ['steel', 'flying']},
+            {'name': 'Altaria', 'id': 334, 'level': 33, 'types': ['dragon', 'flying']}
+        ],
+        'rewards': {'pokedollars': 1750, 'pack': 'Premium Pack'},
+        'difficulty': 6
+    },
+    'tate_liza': {
+        'name': 'Tate & Liza',
+        'title': 'The Mystic Combination',
+        'type': 'Psychic',
+        'badge': '🧠 Mind Badge',
+        'badge_emoji': '🧠',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/23.png',
+        'location': 'Mossdeep City',
+        'pokemon': [
+            {'name': 'Claydol', 'id': 344, 'level': 41, 'types': ['ground', 'psychic']},
+            {'name': 'Xatu', 'id': 178, 'level': 41, 'types': ['psychic', 'flying']},
+            {'name': 'Lunatone', 'id': 337, 'level': 42, 'types': ['rock', 'psychic']},
+            {'name': 'Solrock', 'id': 338, 'level': 42, 'types': ['rock', 'psychic']}
+        ],
+        'rewards': {'pokedollars': 2000, 'pack': 'Elite Trainer Pack'},
+        'difficulty': 7
+    },
+    'wallace': {
+        'name': 'Wallace',
+        'title': 'Artist and Water Pokemon Master',
+        'type': 'Water',
+        'badge': '💧 Rain Badge',
+        'badge_emoji': '💧',
+        'badge_icon': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/24.png',
+        'location': 'Sootopolis City',
+        'pokemon': [
+            {'name': 'Luvdisc', 'id': 370, 'level': 40, 'types': ['water']},
+            {'name': 'Whiscash', 'id': 340, 'level': 40, 'types': ['water', 'ground']},
+            {'name': 'Sealeo', 'id': 364, 'level': 40, 'types': ['ice', 'water']},
+            {'name': 'Seaking', 'id': 119, 'level': 42, 'types': ['water']},
+            {'name': 'Milotic', 'id': 350, 'level': 43, 'types': ['water']}
+        ],
+        'rewards': {'pokedollars': 2500, 'pack': 'Elite Trainer Pack'},
+        'difficulty': 8
+    }
+}
+
+GYM_ORDER_HOENN = ['roxanne', 'brawly', 'wattson', 'flannery', 'norman', 'winona', 'tate_liza', 'wallace']
+
 
 def get_gym_leader(gym_key: str):
-    """Get gym leader data by key from either region"""
+    """Get gym leader data by key from any region"""
     key = gym_key.lower()
     if key in GYM_LEADERS:
         return GYM_LEADERS[key]
-    return GYM_LEADERS_JOHTO.get(key)
+    if key in GYM_LEADERS_JOHTO:
+        return GYM_LEADERS_JOHTO[key]
+    return GYM_LEADERS_HOENN.get(key)
 
 
 def get_all_gym_leaders():
@@ -457,6 +601,11 @@ def get_all_gym_leaders_johto():
     return [(key, GYM_LEADERS_JOHTO[key]) for key in GYM_ORDER_JOHTO]
 
 
+def get_all_gym_leaders_hoenn():
+    """Get all Hoenn gym leaders in order"""
+    return [(key, GYM_LEADERS_HOENN[key]) for key in GYM_ORDER_HOENN]
+
+
 def get_gym_count():
     """Get total number of gyms across all regions"""
-    return len(GYM_LEADERS) + len(GYM_LEADERS_JOHTO)
+    return len(GYM_LEADERS) + len(GYM_LEADERS_JOHTO) + len(GYM_LEADERS_HOENN)

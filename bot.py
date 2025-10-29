@@ -55,7 +55,7 @@ async def fetch_pokemon(session, pokemon_id=None, guild_id=None):
             event = active_events[guild_id]
             pokemon_id = get_event_pokemon(event)
         else:
-            pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
+            pokemon_id = random.randint(1, 386)  # Gen 1, 2 & 3 Pokemon
 
     url = f'https://pokeapi.co/api/v2/pokemon/{pokemon_id}'
 
@@ -89,15 +89,15 @@ def get_event_pokemon(event):
 
     elif event_type == 'legendary_boost':
         # 30% chance for legendary, otherwise normal
-        legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251]
+        legendary_ids = [144, 145, 146, 150, 151, 243, 244, 245, 249, 250, 251, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386]
         if random.random() < 0.3:
             return random.choice(legendary_ids)
         else:
-            return random.randint(1, 251)
+            return random.randint(1, 386)
 
     elif event_type == 'starter_rush':
         # Spawn starter Pokemon
-        starter_ids = [1, 4, 7, 152, 155, 158, 2, 3, 5, 6, 8, 9, 153, 154, 156, 157, 159, 160]
+        starter_ids = [1, 4, 7, 152, 155, 158, 252, 255, 258, 2, 3, 5, 6, 8, 9, 153, 154, 156, 157, 159, 160, 253, 254, 256, 257, 259, 260]
         return random.choice(starter_ids)
 
     elif event_type == 'regional':
@@ -106,27 +106,29 @@ def get_event_pokemon(event):
             return random.randint(1, 151)
         elif event_data['region'] == 'johto':
             return random.randint(152, 251)
+        elif event_data['region'] == 'hoenn':
+            return random.randint(252, 386)
 
     # Default random spawn
-    return random.randint(1, 251)
+    return random.randint(1, 386)
 
 
 def get_pokemon_by_type(pokemon_type):
     """Get list of Pokemon IDs by type (simplified for common types)"""
     type_map = {
-        'fire': [4, 5, 6, 37, 38, 58, 59, 77, 78, 126, 136, 146, 155, 156, 157, 218, 219, 240],
-        'water': [7, 8, 9, 54, 55, 60, 61, 62, 72, 73, 79, 80, 86, 87, 90, 91, 98, 99, 116, 117, 118, 119, 120, 134, 138, 139, 140, 141, 158, 159, 160, 170, 171, 183, 184, 194, 195, 199, 211, 222, 223, 224, 226, 230, 245],
-        'grass': [1, 2, 3, 43, 44, 45, 46, 47, 69, 70, 71, 102, 103, 114, 152, 153, 154, 182, 187, 188, 189, 191, 192],
-        'electric': [25, 26, 81, 82, 100, 101, 125, 135, 145, 172, 179, 180, 181, 239, 243],
-        'dragon': [147, 148, 149, 230],
-        'psychic': [63, 64, 65, 79, 80, 96, 97, 102, 103, 121, 122, 124, 150, 151, 177, 178, 196, 199, 201, 203, 238, 251],
-        'ghost': [92, 93, 94, 200],
-        'ice': [87, 91, 124, 131, 144, 215, 220, 221, 225],
-        'dark': [197, 198, 215, 228, 229, 248],
-        'steel': [81, 82, 205, 208, 211, 227],
+        'fire': [4, 5, 6, 37, 38, 58, 59, 77, 78, 126, 136, 146, 155, 156, 157, 218, 219, 240, 255, 256, 257, 322, 323, 324],
+        'water': [7, 8, 9, 54, 55, 60, 61, 62, 72, 73, 79, 80, 86, 87, 90, 91, 98, 99, 116, 117, 118, 119, 120, 134, 138, 139, 140, 141, 158, 159, 160, 170, 171, 183, 184, 194, 195, 199, 211, 222, 223, 224, 226, 230, 245, 258, 259, 260, 270, 271, 272, 278, 279, 283, 318, 319, 320, 321, 339, 340, 341, 342, 349, 350, 363, 364, 365, 366, 367, 368, 369, 370, 382],
+        'grass': [1, 2, 3, 43, 44, 45, 46, 47, 69, 70, 71, 102, 103, 114, 152, 153, 154, 182, 187, 188, 189, 191, 192, 252, 253, 254, 270, 271, 272, 273, 274, 275, 285, 286, 315, 331, 332, 345, 346, 357],
+        'electric': [25, 26, 81, 82, 100, 101, 125, 135, 145, 172, 179, 180, 181, 239, 243, 309, 310, 311, 312],
+        'dragon': [147, 148, 149, 230, 329, 330, 334, 371, 372, 373, 380, 381, 384],
+        'psychic': [63, 64, 65, 79, 80, 96, 97, 102, 103, 121, 122, 124, 150, 151, 177, 178, 196, 199, 201, 203, 238, 251, 280, 281, 282, 307, 308, 325, 326, 337, 338, 343, 344, 358, 374, 375, 376, 380, 381, 385, 386],
+        'ghost': [92, 93, 94, 200, 302, 353, 354, 355, 356],
+        'ice': [87, 91, 124, 131, 144, 215, 220, 221, 225, 361, 362, 363, 364, 365, 378],
+        'dark': [197, 198, 215, 228, 229, 248, 261, 262, 274, 275, 302, 318, 319, 332, 335, 359],
+        'steel': [81, 82, 205, 208, 211, 227, 303, 304, 305, 306, 374, 375, 376, 379],
     }
 
-    return type_map.get(pokemon_type, [random.randint(1, 251)])  # Default to random if type not found
+    return type_map.get(pokemon_type, [random.randint(1, 386)])  # Default to random if type not found
 
 
 async def fetch_pokemon_moves(session, pokemon_id: int, num_moves: int = 4, max_level: int = 100):
@@ -5012,7 +5014,7 @@ class TrainerBattlePokemonSelect(View):
         opponent_level = random.randint(min_level, max_level)
 
         # Pick a random Pokemon for the trainer
-        opponent_pokemon_id = random.randint(1, 251)  # Gen 1 & 2 Pokemon
+        opponent_pokemon_id = random.randint(1, 386)  # Gen 1, 2 & 3 Pokemon
 
         # Generate a random trainer with quote
         trainer = trainer_data.get_random_trainer()
@@ -5987,15 +5989,15 @@ async def wiki(interaction: discord.Interaction, pokemon: str = None):
                 # It's a name
                 identifier = pokemon.lower()
         else:
-            # Random Gen 1 or Gen 2 Pokemon
-            identifier = random.randint(1, 251)
+            # Random Gen 1, 2 or 3 Pokemon
+            identifier = random.randint(1, 386)
 
         # Fetch Pokemon species data
         async with aiohttp.ClientSession() as session:
             species_data = await fetch_pokemon_species(session, identifier)
 
         if not species_data:
-            await interaction.followup.send(f"❌ Could not find Pokemon: {pokemon}. Make sure it's a Gen 1 or Gen 2 Pokemon!")
+            await interaction.followup.send(f"❌ Could not find Pokemon: {pokemon}. Make sure it's a Gen 1, 2 or 3 Pokemon!")
             return
 
         # Create embed

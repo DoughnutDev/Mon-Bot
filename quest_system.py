@@ -147,7 +147,7 @@ QUEST_TYPES = {
     },
     'catch_starter': {
         'variants': [
-            {'target': 1, 'reward': 60, 'description': 'Catch a starter Pokemon (Bulbasaur, Charmander, Squirtle, Chikorita, Cyndaquil, Totodile)'},
+            {'target': 1, 'reward': 60, 'description': 'Catch a starter Pokemon (Bulbasaur, Charmander, Squirtle, Chikorita, Cyndaquil, Totodile, Treecko, Torchic, Mudkip)'},
         ]
     },
     'catch_evolved': {
@@ -222,6 +222,11 @@ QUEST_TYPES = {
     'earn_johto_badge': {
         'variants': [
             {'target': 1, 'reward': 150, 'description': 'Earn a Johto gym badge'},
+        ]
+    },
+    'earn_hoenn_badge': {
+        'variants': [
+            {'target': 1, 'reward': 150, 'description': 'Earn a Hoenn gym badge'},
         ]
     },
     'collect_badges': {
@@ -305,12 +310,6 @@ QUEST_TYPES = {
         'variants': [
             {'target': 1, 'reward': 60, 'description': 'Level up a Pokemon'},
             {'target': 2, 'reward': 100, 'description': 'Level up 2 Pokemon'},
-        ]
-    },
-    'gain_xp': {
-        'variants': [
-            {'target': 50, 'reward': 50, 'description': 'Gain 50 battlepass XP'},
-            {'target': 100, 'reward': 90, 'description': 'Gain 100 battlepass XP'},
         ]
     },
     'view_stats': {
