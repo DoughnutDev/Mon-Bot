@@ -65,33 +65,134 @@ def get_pokemon_moves(pokemon_id: int, num_moves: int = 4, max_level: int = 100)
     """
     pokemon = get_pokemon(pokemon_id)
     if not pokemon:
-        # Fallback to basic moveset
+        # Pokemon data not found - this shouldn't happen if pokemon_data.json exists
+        # But if it does, use type-appropriate defaults
+        pokemon_types = ['normal']  # Default type
         return [
-            {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
-            {'name': 'Scratch', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
-            {'name': 'Growl', 'power': 0, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'},
-            {'name': 'Tail Whip', 'power': 0, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'}
+            {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': pokemon_types[0], 'damage_class': 'physical'},
+            {'name': 'Scratch', 'power': 40, 'accuracy': 100, 'type': pokemon_types[0], 'damage_class': 'physical'},
+            {'name': 'Growl', 'power': 0, 'accuracy': 100, 'type': pokemon_types[0], 'damage_class': 'status'},
+            {'name': 'Tail Whip', 'power': 0, 'accuracy': 100, 'type': pokemon_types[0], 'damage_class': 'status'}
         ]
 
     all_moves = pokemon.get('moves', [])
+    
+    # If no moves in data, use type-appropriate defaults
+    if not all_moves:
+        # No moves in data - try to use type-appropriate moves
+        pokemon_types = pokemon.get('types', ['normal'])
+        primary_type = pokemon_types[0] if pokemon_types else 'normal'
+        
+        # Use type-appropriate default moves instead of always normal
+        type_defaults = {
+            'fire': [{'name': 'Ember', 'power': 40, 'accuracy': 100, 'type': 'fire', 'damage_class': 'special'}],
+            'water': [{'name': 'Water Gun', 'power': 40, 'accuracy': 100, 'type': 'water', 'damage_class': 'special'}],
+            'grass': [{'name': 'Vine Whip', 'power': 45, 'accuracy': 100, 'type': 'grass', 'damage_class': 'physical'}],
+            'electric': [{'name': 'Thunder Shock', 'power': 40, 'accuracy': 100, 'type': 'electric', 'damage_class': 'special'}],
+            'psychic': [{'name': 'Confusion', 'power': 50, 'accuracy': 100, 'type': 'psychic', 'damage_class': 'special'}],
+        }
+        
+        defaults = type_defaults.get(primary_type, [
+            {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': primary_type, 'damage_class': 'physical'}
+        ])
+        
+        # Fill remaining slots
+        while len(defaults) < num_moves:
+            defaults.append({
+                'name': 'Scratch',
+                'power': 40,
+                'accuracy': 100,
+                'type': primary_type,
+                'damage_class': 'physical'
+            })
+        
+        return [{
+            'name': m['name'].replace('-', ' ').title(),
+            'power': m.get('power', 40),
+            'accuracy': m.get('accuracy', 100),
+            'type': m.get('type', primary_type),
+            'damage_class': m.get('damage_class', 'physical')
+        } for m in defaults[:num_moves]]
 
-    # Filter moves by level
-    available_moves = [m for m in all_moves if m.get('learn_level', 1) <= max_level]
-    if not available_moves:
+    # Filter moves by level (but be VERY lenient - prioritize having moves over level restrictions)
+    # Strategy: Only apply level filtering if it leaves us with a good selection
+    # Otherwise, ignore level restrictions to ensure variety
+    
+    # For very low levels (1-5), be extra lenient - most Pokemon learn moves later
+    if max_level <= 5:
+        # At low levels, ignore level restrictions entirely to ensure variety
         available_moves = all_moves
-
+    else:
+        # Try level filtering first
+        level_filtered = [m for m in all_moves if m.get('learn_level', 0) <= max_level]
+        
+        # Use level-filtered moves only if:
+        # 1. We have at least 6 moves after filtering, OR
+        # 2. We have at least 60% of original moves after filtering
+        if len(level_filtered) >= 6 or (len(all_moves) > 0 and len(level_filtered) >= len(all_moves) * 0.6):
+            available_moves = level_filtered
+        else:
+            # Level filtering is too restrictive - use all moves regardless of level
+            # This ensures Pokemon always have varied movesets
+            available_moves = all_moves
+    
+    # If still no moves after all filtering, something is wrong with the data
+    # But try to use type-appropriate defaults as last resort
     if not available_moves:
-        # No moves at all, use defaults
+        pokemon_types = pokemon.get('types', ['normal'])
+        primary_type = pokemon_types[0] if pokemon_types else 'normal'
+        pokemon_name = pokemon.get('name', 'Unknown')
+        
+        # Log warning (only in debug mode - you can enable this if needed)
+        # print(f"[WARNING] No moves found for {pokemon_name} (ID: {pokemon_id}), using defaults")
+        
         return [
-            {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
-            {'name': 'Scratch', 'power': 40, 'accuracy': 100, 'type': 'normal', 'damage_class': 'physical'},
-            {'name': 'Growl', 'power': 0, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'},
-            {'name': 'Tail Whip', 'power': 0, 'accuracy': 100, 'type': 'normal', 'damage_class': 'status'}
+            {'name': 'Tackle', 'power': 40, 'accuracy': 100, 'type': primary_type, 'damage_class': 'physical'},
+            {'name': 'Scratch', 'power': 40, 'accuracy': 100, 'type': primary_type, 'damage_class': 'physical'},
+            {'name': 'Growl', 'power': 0, 'accuracy': 100, 'type': primary_type, 'damage_class': 'status'},
+            {'name': 'Tail Whip', 'power': 0, 'accuracy': 100, 'type': primary_type, 'damage_class': 'status'}
         ]
 
-    # Categorize moves
-    attacking_moves = [m for m in available_moves if m.get('damage_class') in ['physical', 'special'] and (m.get('power') or 0) > 0]
-    status_moves = [m for m in available_moves if m.get('damage_class') == 'status' or (m.get('power') or 0) == 0]
+    # Categorize moves - be more lenient with categorization
+    attacking_moves = []
+    status_moves = []
+    
+    for m in available_moves:
+        # Get damage_class - handle None, empty string, or missing
+        damage_class_raw = m.get('damage_class')
+        if damage_class_raw:
+            damage_class = str(damage_class_raw).lower().strip()
+        else:
+            damage_class = ''
+        
+        # Get power - handle None, 0, or missing
+        power_raw = m.get('power')
+        if power_raw is not None:
+            try:
+                power = int(power_raw)
+            except (ValueError, TypeError):
+                power = 0
+        else:
+            power = 0
+        
+        # Attacking moves: physical/special with power > 0
+        if damage_class in ['physical', 'special'] and power > 0:
+            attacking_moves.append(m)
+        # Status moves: explicitly status OR power is 0
+        elif damage_class == 'status' or power == 0:
+            status_moves.append(m)
+        # If damage_class is missing/empty but has power, treat as attack
+        elif (not damage_class or damage_class == 'none') and power > 0:
+            attacking_moves.append(m)
+        # Otherwise, default to status
+        else:
+            status_moves.append(m)
+    
+    # Safety check: if we have moves but categorization failed, try harder
+    if available_moves and not attacking_moves and not status_moves:
+        # Something went wrong - just use all moves as-is
+        attacking_moves = [m for m in available_moves if m.get('power', 0) > 0]
+        status_moves = [m for m in available_moves if m not in attacking_moves]
 
     # Separate status moves into buffs and debuffs
     debuff_keywords = ['lower', 'reduce', 'poison', 'paralyze', 'burn', 'freeze', 'confuse', 'sleep', 'stun', 'disable']
