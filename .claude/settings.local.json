@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix critical bugs: gym battles, quest tracking, and shiny protection\n\n- Fix gym battle Pokemon switching to check all team members for alive Pokemon\n  instead of only checking sequential indices (fixes auto-loss bug)\n- Add quest progress tracking for gym battles (challenge_gyms, defeat_gym_leader,\n  earn_badge, earn_pokedollars)\n- Add quest completion notifications to gym victory screen\n- Protect shiny Pokemon from being sold in both single and bulk sell operations\n- Add shiny protection notifications to sell confirmations\n- Improve error messages when attempting to sell protected shinies\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(python:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(git mv:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

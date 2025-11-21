@@ -3031,6 +3031,131 @@ class BattleView(View):
 
         return " ".join(messages)
 
+    def check_status_can_move(self, is_p1: bool) -> tuple:
+        """Check if a Pokemon can move based on status effects. Returns (can_move, message)"""
+        status = self.p1_status if is_p1 else self.p2_status
+        pokemon_name = self.user1_choice['pokemon_name'] if is_p1 else self.user2_choice['pokemon_name']
+
+        if status == 'sleep':
+            # Decrement sleep turns
+            if is_p1:
+                self.p1_status_turns -= 1
+                if self.p1_status_turns <= 0:
+                    self.p1_status = None
+                    return True, f"💤 **{pokemon_name}** woke up!"
+            else:
+                self.p2_status_turns -= 1
+                if self.p2_status_turns <= 0:
+                    self.p2_status = None
+                    return True, f"💤 **{pokemon_name}** woke up!"
+
+            return False, f"💤 **{pokemon_name}** is fast asleep!"
+
+        elif status == 'freeze':
+            # 20% chance to thaw
+            if random.random() < 0.2:
+                if is_p1:
+                    self.p1_status = None
+                else:
+                    self.p2_status = None
+                return True, f"❄️ **{pokemon_name}** thawed out!"
+            else:
+                return False, f"❄️ **{pokemon_name}** is frozen solid!"
+
+        elif status == 'paralysis':
+            # 25% chance to be fully paralyzed
+            if random.random() < 0.25:
+                return False, f"⚡ **{pokemon_name}** is paralyzed and can't move!"
+
+        return True, ""
+
+    def apply_status_damage(self):
+        """Apply end-of-turn status damage"""
+        # Player 1 status damage
+        if self.p1_status in ['burn', 'poison']:
+            status_data = pkmn.get_status_condition_effect(self.p1_status)
+            if status_data:
+                damage = int(self.p1_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.p1_hp = max(0, self.p1_hp - damage)
+
+                if self.p1_status == 'burn':
+                    self.battle_log.append(f"🔥 **{self.user1_choice['pokemon_name']}** is hurt by its burn! (-{damage} HP)")
+                else:
+                    self.battle_log.append(f"☠️ **{self.user1_choice['pokemon_name']}** is hurt by poison! (-{damage} HP)")
+
+        # Player 2 status damage
+        if self.p2_status in ['burn', 'poison']:
+            status_data = pkmn.get_status_condition_effect(self.p2_status)
+            if status_data:
+                damage = int(self.p2_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.p2_hp = max(0, self.p2_hp - damage)
+
+                if self.p2_status == 'burn':
+                    self.battle_log.append(f"🔥 **{self.user2_choice['pokemon_name']}** is hurt by its burn! (-{damage} HP)")
+                else:
+                    self.battle_log.append(f"☠️ **{self.user2_choice['pokemon_name']}** is hurt by poison! (-{damage} HP)")
+
+    def apply_status_effect(self, move: dict, is_p1_attacking: bool):
+        """Apply status effects based on move type"""
+        move_name = move['name'].lower()
+        move_type = move.get('type', '').lower()
+
+        # Determine target
+        if is_p1_attacking:
+            target_status = self.p2_status
+            target_name = self.user2_choice['pokemon_name']
+        else:
+            target_status = self.p1_status
+            target_name = self.user1_choice['pokemon_name']
+
+        # Can't inflict status if target already has one
+        if target_status:
+            return
+
+        # Status move keywords and chances
+        status_chance = 0
+        new_status = None
+
+        if 'thunder wave' in move_name or 'stun spore' in move_name or 'paralyze' in move_name:
+            new_status = 'paralysis'
+            status_chance = 0.75  # 75% chance
+        elif 'sleep' in move_name or 'hypnosis' in move_name or 'spore' in move_name:
+            new_status = 'sleep'
+            status_chance = 0.60  # 60% chance
+        elif move_type == 'fire' and 'burn' not in move_name:
+            new_status = 'burn'
+            status_chance = 0.10  # 10% chance on fire moves
+        elif 'poison' in move_name or 'toxic' in move_name:
+            new_status = 'poison'
+            status_chance = 0.70  # 70% chance
+        elif move_type == 'ice' and 'freeze' not in move_name:
+            new_status = 'freeze'
+            status_chance = 0.10  # 10% chance on ice moves
+
+        # Apply status if chance succeeds
+        if new_status and random.random() < status_chance:
+            if is_p1_attacking:
+                self.p2_status = new_status
+                if new_status == 'sleep':
+                    self.p2_status_turns = random.randint(1, 3)
+            else:
+                self.p1_status = new_status
+                if new_status == 'sleep':
+                    self.p1_status_turns = random.randint(1, 3)
+
+            # Log status infliction
+            emoji_map = {
+                'burn': '🔥',
+                'poison': '☠️',
+                'paralysis': '⚡',
+                'sleep': '💤',
+                'freeze': '❄️'
+            }
+            emoji = emoji_map.get(new_status, '✨')
+            self.battle_log.append(f"{emoji} **{target_name}** was {new_status}ed!")
+
     async def start_battle(self):
         """Initialize battle after both players are ready"""
         self.battle_started = True
@@ -3149,12 +3274,27 @@ class BattleView(View):
         # Build turn log
         self.battle_log.append(f"**Turn {self.turn_count}:**")
 
+        # Check if attacker can move (sleep, freeze, paralysis)
+        can_move, immobilize_msg = self.check_status_can_move(attacker == 1)
+        if not can_move:
+            self.battle_log.append(f"**{attacker_name}** used **{move['name']}**!")
+            if immobilize_msg:
+                self.battle_log.append(immobilize_msg)
+            self.battle_log.append("")
+            # Switch turns even if immobilized
+            self.current_turn = 2 if self.current_turn == 1 else 1
+            self.update_button_states()
+            await self.update_display(interaction)
+            return
+
         # Check if it's a status move
         if move['damage_class'] == 'status':
             self.battle_log.append(f"**{attacker_name}** used **{move['name']}**!")
             status_msg = self.execute_status_move(move, is_p1_move=(attacker == 1))
             if status_msg:
                 self.battle_log.append(status_msg)
+            # Apply status effects from status moves
+            self.apply_status_effect(move, attacker == 1)
         else:
             # Calculate damage
             damage, is_crit, hit = self.calculate_damage(move, attacker_stats, defender_stats, defender_types, attacker_stat_stages, defender_stat_stages, attacker_status)
@@ -3174,6 +3314,9 @@ class BattleView(View):
 
                 crit_text = " **Critical hit!**" if is_crit else ""
                 self.battle_log.append(f"Dealt {damage} damage!{crit_text}")
+
+                # Apply status effects from attacking moves
+                self.apply_status_effect(move, attacker == 1)
 
                 # Check for self-destruct moves
                 move_name_lower = move['name'].lower()
@@ -3202,6 +3345,9 @@ class BattleView(View):
                 current_hp = self.p2_hp if attacker == 1 else self.p1_hp
                 max_hp = self.p2_max_hp if attacker == 1 else self.p1_max_hp
                 self.battle_log.append(f"**{defender_name}** HP: {current_hp}/{max_hp}")
+
+        # Apply end-of-turn status damage
+        self.apply_status_damage()
 
         self.battle_log.append("")
 
@@ -5050,6 +5196,20 @@ class SimpleTrainerBattleView(View):
         self.opponent_level = opponent_level
         self.battles_remaining = battles_remaining
         self.trainer = trainer if trainer else {'name': 'Wild Trainer', 'class': 'Trainer', 'sprite': '⚔️', 'quote': 'Let\'s battle!'}
+        
+        # Stat stages
+        self.user_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+        self.opponent_stat_stages = {
+            'attack': 0, 'defense': 0, 'special-attack': 0,
+            'special-defense': 0, 'speed': 0, 'accuracy': 0, 'evasion': 0
+        }
+        
+        # Status conditions
+        self.user_status = None
+        self.opponent_status = None
 
         # Battle state
         self.turn_count = 0
@@ -5139,18 +5299,44 @@ class SimpleTrainerBattleView(View):
         user_move = self.user_moves[user_move_index]
         opponent_move = random.choice(self.opponent_moves)
 
-        # Determine turn order by speed
-        user_goes_first = self.user_stats['speed'] >= self.opponent_stats['speed']
+        # Determine turn order by speed (apply stat stages)
+        user_speed = self.user_stats['speed']
+        opponent_speed = self.opponent_stats['speed']
+        
+        # Apply speed stat stages
+        user_speed_stage = self.user_stat_stages.get('speed', 0)
+        opponent_speed_stage = self.opponent_stat_stages.get('speed', 0)
+        user_speed = int(user_speed * pkmn.get_stat_stage_multiplier(user_speed_stage))
+        opponent_speed = int(opponent_speed * pkmn.get_stat_stage_multiplier(opponent_speed_stage))
+        
+        # Apply paralysis speed reduction
+        if self.user_status == 'paralysis':
+            user_speed = int(user_speed * 0.25)
+        if self.opponent_status == 'paralysis':
+            opponent_speed = int(opponent_speed * 0.25)
 
-        # Execute moves
+        user_goes_first = user_speed >= opponent_speed
+
+        # Execute moves (check if Pokemon can move first)
         if user_goes_first:
-            await self.user_attacks(user_move)
-            if self.opponent_current_hp > 0:
-                await self.opponent_attacks(opponent_move)
-        else:
-            await self.opponent_attacks(opponent_move)
-            if self.user_current_hp > 0:
+            can_move = await self.check_status_can_move(True)
+            if can_move:
                 await self.user_attacks(user_move)
+            if self.opponent_current_hp > 0:
+                can_move = await self.check_status_can_move(False)
+                if can_move:
+                    await self.opponent_attacks(opponent_move)
+        else:
+            can_move = await self.check_status_can_move(False)
+            if can_move:
+                await self.opponent_attacks(opponent_move)
+            if self.user_current_hp > 0:
+                can_move = await self.check_status_can_move(True)
+                if can_move:
+                    await self.user_attacks(user_move)
+
+        # Apply end-of-turn status damage
+        await self.apply_status_damage()
 
         # Check battle end
         if self.user_current_hp <= 0:
@@ -5168,6 +5354,17 @@ class SimpleTrainerBattleView(View):
 
     async def user_attacks(self, move: dict):
         """User's Pokemon attacks"""
+        # Check if it's a status move
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            # Execute status move
+            self.battle_log.append(f"**{self.user_pokemon['pokemon_name']}** used **{move['name']}**!")
+            status_msg = self.execute_status_move(move, is_user_move=True)
+            if status_msg:
+                self.battle_log.append(status_msg)
+            # Apply status effects (for moves that inflict status conditions)
+            self.apply_status_effect(move, is_user_attacking=True)
+            return
+
         damage, is_crit, hit = self.calculate_damage(
             move,
             self.user_pokemon['pokemon_id'],
@@ -5180,6 +5377,9 @@ class SimpleTrainerBattleView(View):
             self.opponent_current_hp = max(0, self.opponent_current_hp - damage)
             crit_text = " **Critical hit!**" if is_crit else ""
             self.battle_log.append(f"**{self.user_pokemon['pokemon_name']}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
+
+            # Apply status effects from attacking moves
+            self.apply_status_effect(move, is_user_attacking=True)
 
             # Check for self-destruct moves
             move_name_lower = move['name'].lower()
@@ -5194,6 +5394,17 @@ class SimpleTrainerBattleView(View):
 
     async def opponent_attacks(self, move: dict):
         """Opponent's Pokemon attacks"""
+        # Check if it's a status move
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            # Execute status move
+            self.battle_log.append(f"**{self.opponent_name}** used **{move['name']}**!")
+            status_msg = self.execute_status_move(move, is_user_move=False)
+            if status_msg:
+                self.battle_log.append(status_msg)
+            # Apply status effects (for moves that inflict status conditions)
+            self.apply_status_effect(move, is_user_attacking=False)
+            return
+
         damage, is_crit, hit = self.calculate_damage(
             move,
             self.opponent_pokemon_id,
@@ -5206,6 +5417,9 @@ class SimpleTrainerBattleView(View):
             self.user_current_hp = max(0, self.user_current_hp - damage)
             crit_text = " **Critical hit!**" if is_crit else ""
             self.battle_log.append(f"**{self.opponent_name}** used **{move['name']}**! Dealt {damage} damage!{crit_text}")
+
+            # Apply status effects from attacking moves
+            self.apply_status_effect(move, is_user_attacking=False)
 
             # Check for self-destruct moves
             move_name_lower = move['name'].lower()
@@ -5220,9 +5434,16 @@ class SimpleTrainerBattleView(View):
 
     def calculate_damage(self, move: dict, attacker_id: int, defender_id: int, attacker_stats: dict, defender_stats: dict) -> tuple:
         """Calculate damage. Returns (damage, is_crit, hit)"""
-        # Check accuracy
+        # Check accuracy (with accuracy/evasion stages)
         accuracy = move.get('accuracy', 100)
-        if random.randint(1, 100) > accuracy:
+        is_user_attacking = attacker_id == self.user_pokemon['pokemon_id']
+        accuracy_stage = self.user_stat_stages.get('accuracy', 0) if is_user_attacking else self.opponent_stat_stages.get('accuracy', 0)
+        evasion_stage = self.opponent_stat_stages.get('evasion', 0) if is_user_attacking else self.user_stat_stages.get('evasion', 0)
+        net_accuracy_stage = accuracy_stage - evasion_stage
+        accuracy_multiplier = pkmn.get_stat_stage_multiplier(net_accuracy_stage)
+        
+        final_accuracy = min(100, accuracy * accuracy_multiplier)
+        if random.randint(1, 100) > final_accuracy:
             return 0, False, False
 
         # Status moves do no damage
@@ -5243,9 +5464,22 @@ class SimpleTrainerBattleView(View):
         if move['damage_class'] == 'physical':
             attack = attacker_stats['attack']
             defense = defender_stats['defense']
+            attack_stage = self.user_stat_stages.get('attack', 0) if is_user_attacking else self.opponent_stat_stages.get('attack', 0)
+            defense_stage = self.opponent_stat_stages.get('defense', 0) if is_user_attacking else self.user_stat_stages.get('defense', 0)
+            
+            # Burn reduces physical attack by 50%
+            attacker_status = self.user_status if is_user_attacking else self.opponent_status
+            if attacker_status == 'burn' and not is_crit:
+                attack = int(attack * 0.5)
         else:
             attack = attacker_stats.get('special-attack', attacker_stats.get('special_attack', 50))
             defense = defender_stats.get('special-defense', defender_stats.get('special_defense', 50))
+            attack_stage = self.user_stat_stages.get('special-attack', 0) if is_user_attacking else self.opponent_stat_stages.get('special-attack', 0)
+            defense_stage = self.opponent_stat_stages.get('special-defense', 0) if is_user_attacking else self.user_stat_stages.get('special-defense', 0)
+
+        # Apply stat stage multipliers
+        attack = pkmn.apply_stat_stages(attack, attack_stage)
+        defense = pkmn.apply_stat_stages(defense, defense_stage)
 
         # Damage formula
         damage = ((2 * attacker_level / 5 + 2) * power * attack / defense / 50) + 2
@@ -5268,6 +5502,250 @@ class SimpleTrainerBattleView(View):
 
         return int(max(1, damage)), is_crit, True
 
+    def apply_stat_change(self, target_stat_stages: dict, stat: str, stages: int) -> tuple:
+        """Apply stat change and return message and if it was successful"""
+        old_stage = target_stat_stages.get(stat, 0)
+        new_stage = max(-6, min(6, old_stage + stages))
+
+        if new_stage == old_stage:
+            # Stat is already at max/min
+            if stages > 0:
+                return f"won't go higher!", False
+            else:
+                return f"won't go lower!", False
+
+        target_stat_stages[stat] = new_stage
+
+        # Generate message
+        stat_name = stat.replace('-', ' ').title()
+        if stages > 0:
+            if stages == 1:
+                return f"{stat_name} rose!", True
+            elif stages == 2:
+                return f"{stat_name} rose sharply!", True
+            else:
+                return f"{stat_name} rose drastically!", True
+        else:
+            if stages == -1:
+                return f"{stat_name} fell!", True
+            elif stages == -2:
+                return f"{stat_name} fell harshly!", True
+            else:
+                return f"{stat_name} fell severely!", True
+
+    def execute_status_move(self, move: dict, is_user_move: bool) -> str:
+        """Execute a status move and return battle log message"""
+        move_name = move['name'].lower()
+        stat_changes = pkmn.get_move_stat_changes(move_name)
+
+        if not stat_changes:
+            # Move doesn't have stat changes (e.g., Confuse Ray, Thunder Wave, etc.)
+            return ""
+
+        messages = []
+
+        # Determine which Pokemon is using the move
+        if is_user_move:
+            user_name = self.user_pokemon['pokemon_name']
+        else:
+            user_name = self.opponent_name
+
+        # Apply primary stat change
+        if stat_changes['target'] == 'user':
+            # Buff user's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.opponent_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+        else:
+            # Debuff opponent's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.opponent_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.opponent_name}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.user_pokemon['pokemon_name']}**'s {message}")
+
+        # Apply secondary stat change if exists
+        if 'secondary' in stat_changes:
+            secondary = stat_changes['secondary']
+            if stat_changes['target'] == 'user':
+                if is_user_move:
+                    message, success = self.apply_stat_change(
+                        self.user_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+                else:
+                    message, success = self.apply_stat_change(
+                        self.opponent_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+
+        return " ".join(messages)
+
+    async def check_status_can_move(self, is_user: bool) -> bool:
+        """Check if a Pokemon can move based on status effects"""
+        status = self.user_status if is_user else self.opponent_status
+        pokemon_name = self.user_pokemon['pokemon_name'] if is_user else self.opponent_name
+
+        if status == 'sleep':
+            # Decrement sleep turns
+            if is_user:
+                self.user_status_turns -= 1
+                if self.user_status_turns <= 0:
+                    self.user_status = None
+                    self.battle_log.append(f"💤 **{pokemon_name}** woke up!")
+                    return True
+            else:
+                # Opponent doesn't track turns separately, use a simple counter
+                if not hasattr(self, 'opponent_status_turns'):
+                    self.opponent_status_turns = random.randint(1, 3)
+                self.opponent_status_turns -= 1
+                if self.opponent_status_turns <= 0:
+                    self.opponent_status = None
+                    self.battle_log.append(f"💤 **{pokemon_name}** woke up!")
+                    return True
+
+            self.battle_log.append(f"💤 **{pokemon_name}** is fast asleep!")
+            return False
+
+        elif status == 'freeze':
+            # 20% chance to thaw
+            if random.random() < 0.2:
+                if is_user:
+                    self.user_status = None
+                else:
+                    self.opponent_status = None
+                self.battle_log.append(f"❄️ **{pokemon_name}** thawed out!")
+                return True
+            else:
+                self.battle_log.append(f"❄️ **{pokemon_name}** is frozen solid!")
+                return False
+
+        elif status == 'paralysis':
+            # 25% chance to be fully paralyzed
+            if random.random() < 0.25:
+                self.battle_log.append(f"⚡ **{pokemon_name}** is paralyzed and can't move!")
+                return False
+
+        return True
+
+    async def apply_status_damage(self):
+        """Apply end-of-turn status damage"""
+        # User status damage
+        if self.user_status in ['burn', 'poison']:
+            status_data = pkmn.get_status_condition_effect(self.user_status)
+            if status_data:
+                damage = int(self.user_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.user_current_hp = max(0, self.user_current_hp - damage)
+
+                if self.user_status == 'burn':
+                    self.battle_log.append(f"🔥 **{self.user_pokemon['pokemon_name']}** is hurt by its burn! (-{damage} HP)")
+                else:
+                    self.battle_log.append(f"☠️ **{self.user_pokemon['pokemon_name']}** is hurt by poison! (-{damage} HP)")
+
+        # Opponent status damage
+        if self.opponent_status in ['burn', 'poison']:
+            status_data = pkmn.get_status_condition_effect(self.opponent_status)
+            if status_data:
+                damage = int(self.opponent_max_hp * status_data['damage_percent'])
+                damage = max(1, damage)
+                self.opponent_current_hp = max(0, self.opponent_current_hp - damage)
+
+                if self.opponent_status == 'burn':
+                    self.battle_log.append(f"🔥 **{self.opponent_name}** is hurt by its burn! (-{damage} HP)")
+                else:
+                    self.battle_log.append(f"☠️ **{self.opponent_name}** is hurt by poison! (-{damage} HP)")
+
+    def apply_status_effect(self, move: dict, is_user_attacking: bool):
+        """Apply status effects based on move type"""
+        move_name = move['name'].lower()
+        move_type = move.get('type', '').lower()
+
+        # Determine target
+        if is_user_attacking:
+            target_status = self.opponent_status
+            target_name = self.opponent_name
+        else:
+            target_status = self.user_status
+            target_name = self.user_pokemon['pokemon_name']
+
+        # Can't inflict status if target already has one
+        if target_status:
+            return
+
+        # Status move keywords and chances
+        status_chance = 0
+        new_status = None
+
+        if 'thunder wave' in move_name or 'stun spore' in move_name or 'paralyze' in move_name:
+            new_status = 'paralysis'
+            status_chance = 0.75  # 75% chance
+        elif 'sleep' in move_name or 'hypnosis' in move_name or 'spore' in move_name:
+            new_status = 'sleep'
+            status_chance = 0.60  # 60% chance
+        elif move_type == 'fire' and 'burn' not in move_name:
+            new_status = 'burn'
+            status_chance = 0.10  # 10% chance on fire moves
+        elif 'poison' in move_name or 'toxic' in move_name:
+            new_status = 'poison'
+            status_chance = 0.70  # 70% chance
+        elif move_type == 'ice' and 'freeze' not in move_name:
+            new_status = 'freeze'
+            status_chance = 0.10  # 10% chance on ice moves
+
+        # Apply status if chance succeeds
+        if new_status and random.random() < status_chance:
+            if is_user_attacking:
+                self.opponent_status = new_status
+                if new_status == 'sleep':
+                    if not hasattr(self, 'opponent_status_turns'):
+                        self.opponent_status_turns = random.randint(1, 3)
+            else:
+                self.user_status = new_status
+                if new_status == 'sleep':
+                    self.user_status_turns = random.randint(1, 3)  # Sleep for 1-3 turns
+
+            # Log status infliction
+            emoji_map = {
+                'burn': '🔥',
+                'poison': '☠️',
+                'paralysis': '⚡',
+                'sleep': '💤',
+                'freeze': '❄️'
+            }
+            emoji = emoji_map.get(new_status, '✨')
+            self.battle_log.append(f"{emoji} **{target_name}** was {new_status}ed!")
+
     def create_battle_embed(self):
         """Create battle embed"""
         embed = discord.Embed(
@@ -5280,20 +5758,48 @@ class SimpleTrainerBattleView(View):
         user_hp_percent = (self.user_current_hp / self.user_max_hp) * 100
         user_hp_bar = pkmn.create_hp_bar(user_hp_percent)
         user_shiny = "✨ " if self.user_pokemon.get('is_shiny', False) else ""
+        
+        # Add status condition indicator
+        user_status_text = ""
+        if self.user_status:
+            status_data = pkmn.get_status_condition_effect(self.user_status)
+            if status_data:
+                user_status_text = f" {status_data['emoji']}"
+        
+        # Add stat stages indicator (only show non-zero stages)
+        user_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.user_stat_stages.items() if stage != 0]
+        if active_stages:
+            user_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
 
         embed.add_field(
-            name=f"Your {user_shiny}{self.user_pokemon['pokemon_name']} (Lv.{self.user_pokemon.get('level', 1)})",
-            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
+            name=f"Your {user_shiny}{self.user_pokemon['pokemon_name']} (Lv.{self.user_pokemon.get('level', 1)}){user_status_text}",
+            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}{user_stages_text}",
             inline=True
         )
 
         # Opponent's Pokemon
         opponent_hp_percent = (self.opponent_current_hp / self.opponent_max_hp) * 100
         opponent_hp_bar = pkmn.create_hp_bar(opponent_hp_percent)
+        
+        # Add status condition indicator
+        opponent_status_text = ""
+        if self.opponent_status:
+            status_data = pkmn.get_status_condition_effect(self.opponent_status)
+            if status_data:
+                opponent_status_text = f" {status_data['emoji']}"
+        
+        # Add stat stages indicator for opponent
+        opponent_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.opponent_stat_stages.items() if stage != 0]
+        if active_stages:
+            opponent_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
 
         embed.add_field(
-            name=f"{self.trainer['sprite']} {self.opponent_name} (Lv.{self.opponent_level})",
-            value=f"{opponent_hp_bar}\nHP: {self.opponent_current_hp}/{self.opponent_max_hp}",
+            name=f"{self.trainer['sprite']} {self.opponent_name} (Lv.{self.opponent_level}){opponent_status_text}",
+            value=f"{opponent_hp_bar}\nHP: {self.opponent_current_hp}/{self.opponent_max_hp}{opponent_stages_text}",
             inline=True
         )
 

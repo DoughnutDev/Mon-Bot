@@ -334,9 +334,15 @@ class TrainerBattleView(View):
 
         user_move = self.user_choice['moves'][user_move_index]
 
-        # Paralysis speed reduction
+        # Paralysis speed reduction (apply stat stages to speed)
         user_speed = self.user_choice['stats']['speed']
         trainer_speed = self.trainer_current_pokemon['stats']['speed']
+        
+        # Apply speed stat stages
+        user_speed_stage = self.user_stat_stages.get('speed', 0)
+        trainer_speed_stage = self.trainer_stat_stages.get('speed', 0)
+        user_speed = int(user_speed * pkmn.get_stat_stage_multiplier(user_speed_stage))
+        trainer_speed = int(trainer_speed * pkmn.get_stat_stage_multiplier(trainer_speed_stage))
 
         if self.user_status == 'paralysis':
             user_speed = int(user_speed * 0.5)
@@ -524,7 +530,18 @@ class TrainerBattleView(View):
 
     async def user_attacks(self, move: dict):
         """User's Pokemon attacks"""
-        # Calculate damage
+        # Check if it's a status move
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            # Execute status move
+            self.battle_log.append(f"**{self.user_choice['pokemon_name']}** used **{move['name']}**!")
+            status_msg = self.execute_status_move(move, is_user_move=True)
+            if status_msg:
+                self.battle_log.append(status_msg)
+            # Apply status effects (for moves that inflict status conditions)
+            self.apply_status_effect(move, is_user_attacking=True)
+            return
+
+        # Calculate damage for attacking moves
         damage, is_crit, hit = await self.calculate_damage(
             move,
             self.user_choice,
@@ -558,7 +575,18 @@ class TrainerBattleView(View):
         # Trainer picks random move
         move = random.choice(self.trainer_current_pokemon['moves'])
 
-        # Calculate damage
+        # Check if it's a status move
+        if move['damage_class'] == 'status' or move.get('power', 0) == 0:
+            # Execute status move
+            self.battle_log.append(f"**{self.trainer_current_pokemon['pokemon_name']}** used **{move['name']}**!")
+            status_msg = self.execute_status_move(move, is_user_move=False)
+            if status_msg:
+                self.battle_log.append(status_msg)
+            # Apply status effects (for moves that inflict status conditions)
+            self.apply_status_effect(move, is_user_attacking=False)
+            return
+
+        # Calculate damage for attacking moves
         damage, is_crit, hit = await self.calculate_damage(
             move,
             self.trainer_current_pokemon,
@@ -658,6 +686,115 @@ class TrainerBattleView(View):
 
         return damage, is_crit, True
 
+    def apply_stat_change(self, target_stat_stages: dict, stat: str, stages: int) -> tuple:
+        """Apply stat change and return message and if it was successful"""
+        old_stage = target_stat_stages.get(stat, 0)
+        new_stage = max(-6, min(6, old_stage + stages))
+
+        if new_stage == old_stage:
+            # Stat is already at max/min
+            if stages > 0:
+                return f"won't go higher!", False
+            else:
+                return f"won't go lower!", False
+
+        target_stat_stages[stat] = new_stage
+
+        # Generate message
+        stat_name = stat.replace('-', ' ').title()
+        if stages > 0:
+            if stages == 1:
+                return f"{stat_name} rose!", True
+            elif stages == 2:
+                return f"{stat_name} rose sharply!", True
+            else:
+                return f"{stat_name} rose drastically!", True
+        else:
+            if stages == -1:
+                return f"{stat_name} fell!", True
+            elif stages == -2:
+                return f"{stat_name} fell harshly!", True
+            else:
+                return f"{stat_name} fell severely!", True
+
+    def execute_status_move(self, move: dict, is_user_move: bool) -> str:
+        """Execute a status move and return battle log message"""
+        move_name = move['name'].lower()
+        stat_changes = pkmn.get_move_stat_changes(move_name)
+
+        if not stat_changes:
+            # Move doesn't have stat changes (e.g., Confuse Ray, Thunder Wave, etc.)
+            return ""
+
+        messages = []
+
+        # Determine which Pokemon is using the move
+        if is_user_move:
+            user_name = self.user_choice['pokemon_name']
+        else:
+            user_name = self.trainer_current_pokemon['pokemon_name']
+
+        # Apply primary stat change
+        if stat_changes['target'] == 'user':
+            # Buff user's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.trainer_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{user_name}**'s {message}")
+        else:
+            # Debuff opponent's stats
+            if is_user_move:
+                message, success = self.apply_stat_change(
+                    self.trainer_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.trainer_current_pokemon['pokemon_name']}**'s {message}")
+            else:
+                message, success = self.apply_stat_change(
+                    self.user_stat_stages,
+                    stat_changes['stat'],
+                    stat_changes['stages']
+                )
+                if success:
+                    messages.append(f"**{self.user_choice['pokemon_name']}**'s {message}")
+
+        # Apply secondary stat change if exists
+        if 'secondary' in stat_changes:
+            secondary = stat_changes['secondary']
+            if stat_changes['target'] == 'user':
+                if is_user_move:
+                    message, success = self.apply_stat_change(
+                        self.user_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+                else:
+                    message, success = self.apply_stat_change(
+                        self.trainer_stat_stages,
+                        secondary['stat'],
+                        secondary['stages']
+                    )
+                    if success:
+                        messages.append(f"**{user_name}**'s {message}")
+
+        return " ".join(messages)
+
     def create_battle_embed(self):
         """Create battle embed"""
         embed = discord.Embed(
@@ -677,10 +814,17 @@ class TrainerBattleView(View):
         # User status
         status_emoji = {'burn': '🔥', 'poison': '☠️', 'paralysis': '⚡', 'sleep': '💤', 'freeze': '❄️'}
         user_status_text = f" {status_emoji.get(self.user_status, '')}" if self.user_status else ""
+        
+        # Add stat stages indicator (only show non-zero stages)
+        user_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.user_stat_stages.items() if stage != 0]
+        if active_stages:
+            user_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
 
         embed.add_field(
             name=f"Your {user_shiny}{self.user_choice['pokemon_name']} (Lv.{self.user_choice['level']}){user_status_text}",
-            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}",
+            value=f"{user_hp_bar}\nHP: {self.user_current_hp}/{self.user_max_hp}{user_stages_text}",
             inline=True
         )
 
@@ -690,6 +834,13 @@ class TrainerBattleView(View):
 
         # Trainer status
         trainer_status_text = f" {status_emoji.get(self.trainer_status, '')}" if self.trainer_status else ""
+        
+        # Add stat stages indicator for trainer
+        trainer_stages_text = ""
+        active_stages = [f"{stat.replace('-', ' ').title()}: {'+' if stage > 0 else ''}{stage}"
+                        for stat, stage in self.trainer_stat_stages.items() if stage != 0]
+        if active_stages:
+            trainer_stages_text = f"\n**Stages:** {', '.join(active_stages[:3])}"  # Show max 3
 
         # Show trainer's remaining Pokemon count
         remaining = len(self.trainer_team) - self.trainer_pokemon_index
@@ -697,7 +848,7 @@ class TrainerBattleView(View):
 
         embed.add_field(
             name=f"{self.trainer['sprite']} {self.trainer_current_pokemon['pokemon_name']} (Lv.{self.trainer_current_pokemon['level']}){remaining_text}{trainer_status_text}",
-            value=f"{trainer_hp_bar}\nHP: {self.trainer_current_hp}/{self.trainer_max_hp}",
+            value=f"{trainer_hp_bar}\nHP: {self.trainer_current_hp}/{self.trainer_max_hp}{trainer_stages_text}",
             inline=True
         )
 
